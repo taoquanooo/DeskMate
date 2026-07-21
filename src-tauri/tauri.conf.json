@@ -1,0 +1,77 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "DeskMate",
+  "version": "0.1.0",
+  "identifier": "studio.deskmate.app",
+  "build": {
+    "beforeDevCommand": "pnpm dev --host 127.0.0.1 --port 1420",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "settings",
+        "title": "DeskMate 设置",
+        "url": "index.html?view=settings",
+        "width": 960,
+        "height": 720,
+        "minWidth": 820,
+        "minHeight": 640,
+        "center": true,
+        "visible": true
+      },
+      {
+        "label": "pet",
+        "title": "DeskMate",
+        "url": "index.html?view=pet",
+        "width": 192,
+        "height": 208,
+        "transparent": true,
+        "decorations": false,
+        "resizable": false,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "visible": true
+      },
+      {
+        "label": "bubble",
+        "title": "DeskMate 提醒",
+        "url": "index.html?view=bubble",
+        "width": 360,
+        "height": 230,
+        "transparent": true,
+        "decorations": false,
+        "resizable": false,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost https://github.com https://*.githubusercontent.com https://*.github.io",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/studio.deskmate.app/pets/**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "createUpdaterArtifacts": true,
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["SimpChinese", "English"]
+      }
+    }
+  }
+}

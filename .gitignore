@@ -1,0 +1,16 @@
+node_modules/
+dist/
+target/
+src-tauri/target/
+.vite/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+.playwright-cli/
+.tools/
+.xwin-cache/
+.pnpm-store/
+rustup-init.exe
+vs_BuildTools.exe
