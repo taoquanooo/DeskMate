@@ -101,12 +101,12 @@ async fn pet_catalog_refresh(app: tauri::AppHandle) -> Result<PetCatalogV1, Stri
 #[tauri::command]
 async fn pet_install(app: tauri::AppHandle, id: String, version: String) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let catalog = match state
+    let cached_catalog = state
         .catalog
         .read()
         .map_err(|_| "catalog lock poisoned")?
-        .clone()
-    {
+        .clone();
+    let catalog = match cached_catalog {
         Some(catalog) => catalog,
         None => refresh_catalog(&app).await?,
     };
@@ -357,7 +357,8 @@ fn register_shortcuts(app: &mut tauri::App) -> tauri::Result<()> {
     use tauri_plugin_global_shortcut::{Builder, Code, Modifiers, ShortcutState};
     app.handle().plugin(
         Builder::new()
-            .with_shortcuts(["ctrl+alt+m", "ctrl+alt+p"])?
+            .with_shortcuts(["ctrl+alt+m", "ctrl+alt+p"])
+            .map_err(|error| std::io::Error::other(error.to_string()))?
             .with_handler(|app, shortcut, event| {
                 if event.state != ShortcutState::Pressed {
                     return;

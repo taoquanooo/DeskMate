@@ -93,7 +93,9 @@ impl SettingsStore {
 
     pub fn load(&self) -> SettingsV1 {
         let value = self.load_value();
-        serde_json::from_value(value).unwrap_or_default().sanitize()
+        serde_json::from_value::<SettingsV1>(value)
+            .unwrap_or_default()
+            .sanitize()
     }
 
     pub fn load_value(&self) -> Value {

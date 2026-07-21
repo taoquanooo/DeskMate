@@ -10,7 +10,7 @@ use std::{
 };
 use tauri::{Emitter, Manager, PhysicalPosition};
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AnimationPayload {
     state: &'static str,
@@ -206,9 +206,12 @@ fn cursor_work_area() -> Option<WorkArea> {
 
 #[cfg(windows)]
 fn work_areas() -> Vec<WorkArea> {
-    use windows::Win32::{
-        Foundation::{BOOL, LPARAM, RECT},
-        Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO},
+    use windows::{
+        core::BOOL,
+        Win32::{
+            Foundation::{LPARAM, RECT},
+            Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO},
+        },
     };
     unsafe extern "system" fn callback(
         monitor: HMONITOR,
@@ -250,9 +253,9 @@ fn work_areas() -> Vec<WorkArea> {
 
 #[cfg(windows)]
 fn reduced_motion_enabled() -> bool {
-    use windows::Win32::{
-        Foundation::BOOL,
-        UI::WindowsAndMessaging::{
+    use windows::{
+        core::BOOL,
+        Win32::UI::WindowsAndMessaging::{
             SystemParametersInfoW, SPI_GETCLIENTAREAANIMATION, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
         },
     };
