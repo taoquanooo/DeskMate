@@ -33,6 +33,7 @@ export interface LocalPetV1 {
   displayName: string;
   description: string;
   folderName: string;
+  spriteVersionNumber: 1 | 2;
 }
 
 export interface LocalPetScanV1 {

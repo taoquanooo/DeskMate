@@ -24,6 +24,7 @@ describe("PetWindow", () => {
     tauriMocks.petCurrent.mockResolvedValue({
       id: "studio-cat",
       version: "local",
+      spriteVersionNumber: 1,
       spritesheetPath: "C:\\custom-pets\\studio-cat\\spritesheet.webp",
     });
 
@@ -33,6 +34,7 @@ describe("PetWindow", () => {
     await waitFor(() =>
       expect(sprite).toHaveStyle({
         backgroundImage: "url(C:\\custom-pets\\studio-cat\\spritesheet.webp)",
+        backgroundSize: "1536px 1872px",
       }),
     );
   });

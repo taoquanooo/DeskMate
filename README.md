@@ -55,7 +55,7 @@ pnpm tauri dev
 
 打开 **设置 → 宠物库 → 打开自定义宠物文件夹**。DeskMate 会使用应用数据目录下的 `custom-pets`，避免 Windows 安装目录的写入权限问题，也不会在升级应用时被覆盖。每只宠物单独放在一个子文件夹：
 
-可以先在 [Codex Pet Gallery](https://codex-pet.org/zh/) 浏览和下载社区宠物。DeskMate 会在导入时检查图集兼容性；当前要求 Codex v2 的 8×11 图集。
+可以先在 [Codex Pet Gallery](https://codex-pet.org/zh/) 浏览和下载社区宠物。DeskMate 会在导入时自动识别 Codex v1 的 8×9 图集和 Codex v2 的 8×11 图集。
 
 ```text
 custom-pets/
@@ -76,7 +76,7 @@ custom-pets/
 }
 ```
 
-点击“重新扫描”后即可在宠物库选择。`id` 只能使用小写英文字母、数字和短横线；图集必须是带透明通道的 Codex v2 WebP（1536×2288、8×11）。无效文件夹会单独显示错误，不影响其他宠物。
+点击“重新扫描”后即可在宠物库选择。`id` 只能使用小写英文字母、数字和短横线；图集必须是带透明通道的 Codex WebP：v1 为 1536×1872（8×9），v2 为 1536×2288（8×11）。旧版 v1 清单可以不写 `spriteVersionNumber`，DeskMate 会按尺寸识别；由于 v1 没有 16 向注视帧，运行时会自动回退到 idle 动画。无效文件夹会单独显示错误，不影响其他宠物。
 
 ## 发布
 

@@ -25,6 +25,7 @@ export interface UpdateStatus {
 export interface PetChangedPayload {
   id: string;
   version: string;
+  spriteVersionNumber: 1 | 2;
   spritesheetPath?: string | null;
 }
 
@@ -73,7 +74,9 @@ export async function petLocalFolderOpen() {
 }
 
 export async function petCurrent(): Promise<PetChangedPayload> {
-  if (!isTauri()) return { id: "yanghao", version: "1.0.0", spritesheetPath: null };
+  if (!isTauri()) {
+    return { id: "yanghao", version: "1.0.0", spriteVersionNumber: 2, spritesheetPath: null };
+  }
   return invoke("pet_current");
 }
 

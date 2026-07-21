@@ -61,6 +61,7 @@ struct UpdateStatus {
 struct PetChangedPayload {
     id: String,
     version: String,
+    sprite_version_number: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
     spritesheet_path: Option<PathBuf>,
 }
@@ -163,6 +164,7 @@ fn pet_current(app: tauri::AppHandle) -> PetChangedPayload {
         PetChangedPayload {
             id: "yanghao".into(),
             version: "1.0.0".into(),
+            sprite_version_number: 2,
             spritesheet_path: None,
         }
     })
@@ -648,18 +650,23 @@ fn resolve_pet_payload(
         return Ok(PetChangedPayload {
             id: id.into(),
             version: version.into(),
+            sprite_version_number: 2,
             spritesheet_path: None,
         });
     }
-    let spritesheet = if version == "local" {
-        pets::find_local_pet(&custom_pets_root(app), id)?.1
+    let (spritesheet, sprite_version_number) = if version == "local" {
+        let (manifest, spritesheet) = pets::find_local_pet(&custom_pets_root(app), id)?;
+        (spritesheet, manifest.sprite_version_number)
     } else {
-        app.state::<AppState>()
-            .data_dir
-            .join("pets")
-            .join(id)
-            .join(version)
-            .join("spritesheet.webp")
+        (
+            app.state::<AppState>()
+                .data_dir
+                .join("pets")
+                .join(id)
+                .join(version)
+                .join("spritesheet.webp"),
+            2,
+        )
     };
     if !spritesheet.is_file() {
         return Err("pet version is not installed".into());
@@ -667,6 +674,7 @@ fn resolve_pet_payload(
     Ok(PetChangedPayload {
         id: id.into(),
         version: version.into(),
+        sprite_version_number,
         spritesheet_path: Some(spritesheet),
     })
 }

@@ -11,7 +11,8 @@ use std::{
 pub const ALLOWED_FILES: [&str; 3] = ["pet.json", "spritesheet.webp", "ASSET_LICENSE.txt"];
 const REQUIRED_FRAME_COUNTS: [usize; 11] = [6, 8, 8, 4, 5, 8, 6, 6, 6, 8, 8];
 const ATLAS_WIDTH: u32 = 1536;
-const ATLAS_HEIGHT: u32 = 2288;
+const V1_ATLAS_HEIGHT: u32 = 1872;
+const V2_ATLAS_HEIGHT: u32 = 2288;
 const CELL_WIDTH: u32 = 192;
 const CELL_HEIGHT: u32 = 208;
 const MAX_LOCAL_MANIFEST_BYTES: u64 = 64 * 1024;
@@ -27,7 +28,7 @@ pub enum PackageError {
     MissingFile(String),
     #[error("pet.json is invalid")]
     InvalidManifest,
-    #[error("spritesheet.webp is not a valid Codex v2 atlas")]
+    #[error("spritesheet.webp is not a compatible Codex atlas")]
     InvalidSpritesheet,
     #[error("archive exceeds the allowed size")]
     TooLarge,
@@ -78,6 +79,26 @@ pub struct LocalPetV1 {
     pub display_name: String,
     pub description: String,
     pub folder_name: String,
+    pub sprite_version_number: u8,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalPetManifest {
+    id: String,
+    display_name: String,
+    description: String,
+    #[serde(default)]
+    sprite_version_number: Option<u8>,
+    spritesheet_path: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ValidatedLocalPet {
+    pub id: String,
+    pub display_name: String,
+    pub description: String,
+    pub sprite_version_number: u8,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -150,13 +171,14 @@ pub fn scan_local_pets(root: &Path) -> LocalPetScanV1 {
             display_name: manifest.display_name,
             description: manifest.description,
             folder_name,
+            sprite_version_number: manifest.sprite_version_number,
         });
     }
     scan.pets.retain(|pet| !duplicate_ids.contains(&pet.id));
     scan
 }
 
-pub fn find_local_pet(root: &Path, id: &str) -> Result<(PetManifestV2, PathBuf), String> {
+pub fn find_local_pet(root: &Path, id: &str) -> Result<(ValidatedLocalPet, PathBuf), String> {
     let scan = scan_local_pets(root);
     let pet = scan
         .pets
@@ -171,16 +193,36 @@ pub fn find_local_pet(root: &Path, id: &str) -> Result<(PetManifestV2, PathBuf),
     Ok((manifest, directory.join("spritesheet.webp")))
 }
 
-fn validate_local_pet_directory(directory: &Path) -> Result<PetManifestV2, String> {
+fn validate_local_pet_directory(directory: &Path) -> Result<ValidatedLocalPet, String> {
     let manifest_path = directory.join("pet.json");
     let spritesheet_path = directory.join("spritesheet.webp");
     let manifest_bytes = read_regular_local_file(&manifest_path, MAX_LOCAL_MANIFEST_BYTES)
         .map_err(|error| format!("pet.json {error}"))?;
     let spritesheet_bytes = read_regular_local_file(&spritesheet_path, MAX_LOCAL_SPRITESHEET_BYTES)
         .map_err(|error| format!("spritesheet.webp {error}"))?;
-    let manifest = validate_manifest(&manifest_bytes).map_err(|error| error.to_string())?;
-    validate_spritesheet(&spritesheet_bytes).map_err(|error| error.to_string())?;
-    Ok(manifest)
+    let manifest: LocalPetManifest = serde_json::from_slice(&manifest_bytes)
+        .map_err(|_| PackageError::InvalidManifest.to_string())?;
+    let valid_id = !manifest.id.is_empty()
+        && manifest.id.chars().all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+        });
+    if !valid_id
+        || manifest.display_name.trim().is_empty()
+        || manifest.description.trim().is_empty()
+        || !matches!(manifest.sprite_version_number, None | Some(1 | 2))
+        || manifest.spritesheet_path != "spritesheet.webp"
+    {
+        return Err(PackageError::InvalidManifest.to_string());
+    }
+    let sprite_version_number =
+        validate_local_spritesheet(&spritesheet_bytes, manifest.sprite_version_number)
+            .map_err(|error| error.to_string())?;
+    Ok(ValidatedLocalPet {
+        id: manifest.id,
+        display_name: manifest.display_name,
+        description: manifest.description,
+        sprite_version_number,
+    })
 }
 
 fn read_regular_local_file(path: &Path, maximum_bytes: u64) -> Result<Vec<u8>, String> {
@@ -274,7 +316,7 @@ pub fn validate_package(path: &Path, maximum_bytes: u64) -> Result<(), PackageEr
     let manifest = read_entry(&mut zip, "pet.json", 64 * 1024)?;
     validate_manifest(&manifest)?;
     let spritesheet = read_entry(&mut zip, "spritesheet.webp", maximum_bytes as usize)?;
-    validate_spritesheet(&spritesheet)?;
+    validate_spritesheet(&spritesheet, 2)?;
     Ok(())
 }
 
@@ -326,21 +368,57 @@ fn validate_manifest(bytes: &[u8]) -> Result<PetManifestV2, PackageError> {
     Ok(manifest)
 }
 
-fn validate_spritesheet(bytes: &[u8]) -> Result<(), PackageError> {
+fn validate_local_spritesheet(
+    bytes: &[u8],
+    declared_version: Option<u8>,
+) -> Result<u8, PackageError> {
+    let image = decode_spritesheet(bytes)?;
+    let detected_version = match image.dimensions() {
+        (ATLAS_WIDTH, V1_ATLAS_HEIGHT) => 1,
+        (ATLAS_WIDTH, V2_ATLAS_HEIGHT) => 2,
+        _ => return Err(PackageError::InvalidSpritesheet),
+    };
+    if declared_version.is_some_and(|version| version != detected_version) {
+        return Err(PackageError::InvalidSpritesheet);
+    }
+    validate_decoded_spritesheet(&image, detected_version)?;
+    Ok(detected_version)
+}
+
+fn validate_spritesheet(bytes: &[u8], sprite_version_number: u8) -> Result<(), PackageError> {
+    let image = decode_spritesheet(bytes)?;
+    validate_decoded_spritesheet(&image, sprite_version_number)
+}
+
+fn decode_spritesheet(bytes: &[u8]) -> Result<image::DynamicImage, PackageError> {
     let image = image::load_from_memory_with_format(bytes, image::ImageFormat::WebP)
         .map_err(|_| PackageError::InvalidSpritesheet)?;
-    if image.dimensions() != (ATLAS_WIDTH, ATLAS_HEIGHT) || !image.color().has_alpha() {
+    if !image.color().has_alpha() {
+        return Err(PackageError::InvalidSpritesheet);
+    }
+    Ok(image)
+}
+
+fn validate_decoded_spritesheet(
+    image: &image::DynamicImage,
+    sprite_version_number: u8,
+) -> Result<(), PackageError> {
+    let (expected_height, row_count) = match sprite_version_number {
+        1 => (V1_ATLAS_HEIGHT, 9),
+        2 => (V2_ATLAS_HEIGHT, REQUIRED_FRAME_COUNTS.len()),
+        _ => return Err(PackageError::InvalidSpritesheet),
+    };
+    if image.dimensions() != (ATLAS_WIDTH, expected_height) {
         return Err(PackageError::InvalidSpritesheet);
     }
     let rgba = image.to_rgba8();
-    for (row, used_columns) in REQUIRED_FRAME_COUNTS.into_iter().enumerate() {
+    for (row, used_columns) in REQUIRED_FRAME_COUNTS[..row_count]
+        .iter()
+        .copied()
+        .enumerate()
+    {
         for column in 0..used_columns {
             if !cell_has_alpha(&rgba, row as u32, column as u32) {
-                return Err(PackageError::InvalidSpritesheet);
-            }
-        }
-        for column in used_columns..8 {
-            if cell_has_alpha(&rgba, row as u32, column as u32) {
                 return Err(PackageError::InvalidSpritesheet);
             }
         }
@@ -377,8 +455,8 @@ fn io_error(error: impl std::fmt::Display) -> PackageError {
 #[cfg(test)]
 mod tests {
     use super::{
-        scan_local_pets, validate_package, PackageError, ATLAS_HEIGHT, ATLAS_WIDTH, CELL_HEIGHT,
-        CELL_WIDTH, REQUIRED_FRAME_COUNTS,
+        scan_local_pets, validate_package, PackageError, ATLAS_WIDTH, CELL_HEIGHT, CELL_WIDTH,
+        REQUIRED_FRAME_COUNTS, V1_ATLAS_HEIGHT, V2_ATLAS_HEIGHT,
     };
     use std::io::Write;
 
@@ -393,9 +471,39 @@ mod tests {
         zip.finish().unwrap();
     }
 
-    fn write_valid_v2_spritesheet(path: &std::path::Path) {
-        let mut atlas = image::RgbaImage::new(ATLAS_WIDTH, ATLAS_HEIGHT);
+    fn write_v2_spritesheet(path: &std::path::Path, extra_cells: &[(usize, usize)]) {
+        let mut atlas = image::RgbaImage::new(ATLAS_WIDTH, V2_ATLAS_HEIGHT);
         for (row, frame_count) in REQUIRED_FRAME_COUNTS.into_iter().enumerate() {
+            for column in 0..frame_count {
+                atlas.put_pixel(
+                    column as u32 * CELL_WIDTH + CELL_WIDTH / 2,
+                    row as u32 * CELL_HEIGHT + CELL_HEIGHT / 2,
+                    image::Rgba([255, 255, 255, 255]),
+                );
+            }
+        }
+        for &(row, column) in extra_cells {
+            atlas.put_pixel(
+                column as u32 * CELL_WIDTH + CELL_WIDTH / 2,
+                row as u32 * CELL_HEIGHT + CELL_HEIGHT / 2,
+                image::Rgba([255, 255, 255, 255]),
+            );
+        }
+
+        let file = std::fs::File::create(path).unwrap();
+        image::codecs::webp::WebPEncoder::new_lossless(file)
+            .encode(
+                atlas.as_raw(),
+                ATLAS_WIDTH,
+                V2_ATLAS_HEIGHT,
+                image::ExtendedColorType::Rgba8,
+            )
+            .unwrap();
+    }
+
+    fn write_v1_spritesheet(path: &std::path::Path) {
+        let mut atlas = image::RgbaImage::new(ATLAS_WIDTH, V1_ATLAS_HEIGHT);
+        for (row, frame_count) in REQUIRED_FRAME_COUNTS[..9].iter().copied().enumerate() {
             for column in 0..frame_count {
                 atlas.put_pixel(
                     column as u32 * CELL_WIDTH + CELL_WIDTH / 2,
@@ -410,7 +518,7 @@ mod tests {
             .encode(
                 atlas.as_raw(),
                 ATLAS_WIDTH,
-                ATLAS_HEIGHT,
+                V1_ATLAS_HEIGHT,
                 image::ExtendedColorType::Rgba8,
             )
             .unwrap();
@@ -466,7 +574,7 @@ mod tests {
             .as_bytes(),
         )
         .unwrap();
-        write_valid_v2_spritesheet(&valid.join("spritesheet.webp"));
+        write_v2_spritesheet(&valid.join("spritesheet.webp"), &[]);
         let invalid = directory.path().join("broken-pet");
         std::fs::create_dir_all(&invalid).unwrap();
         std::fs::write(invalid.join("pet.json"), b"not json").unwrap();
@@ -477,6 +585,60 @@ mod tests {
         assert_eq!(scan.pets.len(), 1);
         assert_eq!(scan.pets[0].id, "studio-cat");
         assert_eq!(scan.pets[0].version, "local");
+        assert_eq!(scan.pets[0].sprite_version_number, 2);
         assert!(scan.errors.iter().any(|error| error.contains("broken-pet")));
+    }
+
+    #[test]
+    fn accepts_codex_v1_pet_without_sprite_version_number() {
+        let directory = tempfile::tempdir().unwrap();
+        let pet = directory.path().join("legacy-codex-pet");
+        std::fs::create_dir_all(&pet).unwrap();
+        std::fs::write(
+            pet.join("pet.json"),
+            r#"{
+                "id":"legacy-codex-pet",
+                "displayName":"Codex v1 宠物",
+                "description":"没有 spriteVersionNumber 的旧版宠物",
+                "spritesheetPath":"spritesheet.webp",
+                "kind":"object"
+            }"#
+            .as_bytes(),
+        )
+        .unwrap();
+        write_v1_spritesheet(&pet.join("spritesheet.webp"));
+
+        let scan = scan_local_pets(directory.path());
+
+        assert_eq!(scan.errors, Vec::<String>::new());
+        assert_eq!(scan.pets.len(), 1);
+        assert_eq!(scan.pets[0].id, "legacy-codex-pet");
+        assert_eq!(scan.pets[0].sprite_version_number, 1);
+    }
+
+    #[test]
+    fn accepts_codex_v2_pet_with_extra_frames_in_unused_cells() {
+        let directory = tempfile::tempdir().unwrap();
+        let pet = directory.path().join("codex-pet");
+        std::fs::create_dir_all(&pet).unwrap();
+        std::fs::write(
+            pet.join("pet.json"),
+            r#"{
+                "id":"codex-pet",
+                "displayName":"Codex 宠物",
+                "description":"带有额外 idle 帧的兼容宠物",
+                "spriteVersionNumber":2,
+                "spritesheetPath":"spritesheet.webp"
+            }"#
+            .as_bytes(),
+        )
+        .unwrap();
+        write_v2_spritesheet(&pet.join("spritesheet.webp"), &[(0, 6)]);
+
+        let scan = scan_local_pets(directory.path());
+
+        assert_eq!(scan.errors, Vec::<String>::new());
+        assert_eq!(scan.pets.len(), 1);
+        assert_eq!(scan.pets[0].id, "codex-pet");
     }
 }

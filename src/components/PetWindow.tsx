@@ -33,7 +33,10 @@ export function PetWindow() {
   }>({ state: "idle", startedAt: performance.now() });
   const [elapsedMs, setElapsedMs] = useState(0);
   const [scale, setScale] = useState(1);
-  const [spritesheetUrl, setSpritesheetUrl] = useState("/pets/yanghao/spritesheet.webp");
+  const [petAppearance, setPetAppearance] = useState<{
+    spritesheetUrl: string;
+    spriteVersionNumber: 1 | 2;
+  }>({ spritesheetUrl: "/pets/yanghao/spritesheet.webp", spriteVersionNumber: 2 });
   const singleClickTimer = useRef<number | undefined>(undefined);
   const interactionTimer = useRef<number | undefined>(undefined);
   const interactionActive = useRef(false);
@@ -61,7 +64,12 @@ export function PetWindow() {
     let unlistenAnimation: () => void = () => undefined;
     let unlistenPet: () => void = () => undefined;
     void settingsGet().then((settings) => setScale(settings.pet.scale));
-    void petCurrent().then((pet) => setSpritesheetUrl(petAssetUrl(pet.spritesheetPath)));
+    void petCurrent().then((pet) =>
+      setPetAppearance({
+        spritesheetUrl: petAssetUrl(pet.spritesheetPath),
+        spriteVersionNumber: pet.spriteVersionNumber,
+      }),
+    );
     void listenEvent<RuntimeAnimationPayload>("runtime://animation", (payload) => {
       if (!VALID_STATES.has(payload.state as AnimationState)) return;
       const next = {
@@ -78,7 +86,10 @@ export function PetWindow() {
       unlistenAnimation = dispose;
     });
     void listenEvent<PetChangedPayload>("pet://changed", (payload) =>
-      setSpritesheetUrl(petAssetUrl(payload.spritesheetPath)),
+      setPetAppearance({
+        spritesheetUrl: petAssetUrl(payload.spritesheetPath),
+        spriteVersionNumber: payload.spriteVersionNumber,
+      }),
     ).then((dispose) => {
       unlistenPet = dispose;
     });
@@ -122,6 +133,7 @@ export function PetWindow() {
   };
 
   const handlePointerMove = (event: React.PointerEvent) => {
+    if (petAppearance.spriteVersionNumber === 1) return;
     if (animation.state !== "idle" && animation.state !== "look") return;
     const rect = event.currentTarget.getBoundingClientRect();
     const directionDegrees = gazeAngleFromVector(
@@ -152,7 +164,8 @@ export function PetWindow() {
         directionDegrees={animation.directionDegrees}
         elapsedMs={elapsedMs}
         scale={scale}
-        spritesheetUrl={spritesheetUrl}
+        spritesheetUrl={petAppearance.spritesheetUrl}
+        spriteVersionNumber={petAppearance.spriteVersionNumber}
       />
     </main>
   );

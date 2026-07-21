@@ -20,6 +20,7 @@ export interface PetSpriteProps {
   scale?: number;
   className?: string;
   spritesheetUrl?: string;
+  spriteVersionNumber?: 1 | 2;
 }
 
 export function PetSprite({
@@ -29,10 +30,13 @@ export function PetSprite({
   scale = 1,
   className = "",
   spritesheetUrl = "/pets/yanghao/spritesheet.webp",
+  spriteVersionNumber = 2,
 }: PetSpriteProps) {
-  const cell = state === "look" ? lookCell(directionDegrees) : standardCell(state, elapsedMs);
+  const effectiveState = state === "look" && spriteVersionNumber === 1 ? "idle" : state;
+  const cell =
+    effectiveState === "look" ? lookCell(directionDegrees) : standardCell(effectiveState, elapsedMs);
   const direction = normalizeGazeAngle(directionDegrees);
-  const label = state === "look" ? `杨皓正在看向 ${direction}°` : LABELS[state];
+  const label = effectiveState === "look" ? `杨皓正在看向 ${direction}°` : LABELS[effectiveState];
 
   return (
     <div
@@ -44,6 +48,7 @@ export function PetSprite({
       style={{
         backgroundImage: `url(${spritesheetUrl})`,
         backgroundPosition: `${-cell.column * 192}px ${-cell.row * 208}px`,
+        backgroundSize: `1536px ${spriteVersionNumber === 1 ? 1872 : 2288}px`,
         transform: `scale(${scale})`,
       }}
     />

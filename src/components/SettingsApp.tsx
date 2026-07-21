@@ -377,7 +377,7 @@ function PetLibrary({
         <div>
           <strong>推荐：Codex Pet Gallery</strong>
           <p>浏览、预览和下载社区制作的 Codex 宠物。</p>
-          <small>下载后放入下方文件夹；DeskMate 会在扫描时检查 v2 图集兼容性。</small>
+          <small>下载后放入下方文件夹；DeskMate 会自动识别 Codex v1 / v2 图集。</small>
         </div>
         <a
           className="button button-primary"
@@ -420,7 +420,9 @@ function PetLibrary({
           <div>
             <strong>{pet.displayName}</strong>
             <p>{pet.description}</p>
-            <small>本机文件夹 · {pet.folderName}</small>
+            <small>
+              本机文件夹 · {pet.folderName} · Codex v{pet.spriteVersionNumber}
+            </small>
           </div>
           {selected.id === pet.id && selected.version === "local" ? (
             <span className="installed-label">当前使用</span>
@@ -504,7 +506,7 @@ function About({
       </div>
       <h2 className="about-title">DeskMate v0.1.0</h2>
       <p className="about-intro">陪伴、提醒和可更换宠物都在本机完成</p>
-      <p className="about-copy">程序代码采用 MIT 许可证；杨皓宠物素材采用独立素材许可。</p>
+      <p className="about-copy">程序代码采用 MIT 许可证。</p>
       <div className="about-actions">
         <a
           className="button button-secondary"

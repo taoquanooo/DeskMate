@@ -51,6 +51,7 @@ describe("SettingsApp", () => {
             displayName: "工作室小猫",
             description: "来自自定义宠物文件夹",
             folderName: "studio-cat",
+            spriteVersionNumber: 2,
           },
         ]}
         localPetFolder="C:\\Users\\tester\\AppData\\Roaming\\studio.deskmate.app\\custom-pets"
