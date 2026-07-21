@@ -34,6 +34,14 @@ test("the cloud preview flavor does not require updater signing secrets", async 
   assert.equal(config.bundle.createUpdaterArtifacts, false);
 });
 
+test("the updater plugin always has a deserializable startup config", async () => {
+  const config = JSON.parse(await readFile(tauriConfigUrl, "utf8"));
+
+  assert.equal(typeof config.plugins?.updater, "object");
+  assert.notEqual(config.plugins.updater, null);
+  assert.equal(typeof config.plugins.updater.pubkey, "string");
+});
+
 test("the Tauri dependency enables the asset protocol used by the app config", async () => {
   const config = JSON.parse(await readFile(tauriConfigUrl, "utf8"));
   const cargoManifest = await readFile(cargoManifestUrl, "utf8");
