@@ -284,7 +284,7 @@ fn is_foreground_fullscreen(pet: &tauri::WebviewWindow) -> bool {
         Graphics::Gdi::{
             GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
         },
-        UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect},
+        UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowRect},
     };
     unsafe {
         let foreground = GetForegroundWindow();
@@ -302,10 +302,31 @@ fn is_foreground_fullscreen(pet: &tauri::WebviewWindow) -> bool {
         {
             return false;
         }
-        (rect.left - info.rcMonitor.left).abs() <= 2
+        let fills_monitor = (rect.left - info.rcMonitor.left).abs() <= 2
             && (rect.top - info.rcMonitor.top).abs() <= 2
             && (rect.right - info.rcMonitor.right).abs() <= 2
-            && (rect.bottom - info.rcMonitor.bottom).abs() <= 2
+            && (rect.bottom - info.rcMonitor.bottom).abs() <= 2;
+        let mut class_name = [0_u16; 256];
+        let class_length = GetClassNameW(foreground, &mut class_name);
+        let class_name = String::from_utf16_lossy(&class_name[..class_length.max(0) as usize]);
+        is_fullscreen_window_class(&class_name, fills_monitor)
+    }
+}
+
+#[cfg(windows)]
+fn is_fullscreen_window_class(class_name: &str, fills_monitor: bool) -> bool {
+    fills_monitor && !matches!(class_name, "Progman" | "WorkerW")
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::is_fullscreen_window_class;
+
+    #[test]
+    fn windows_desktop_is_not_a_fullscreen_app() {
+        assert!(!is_fullscreen_window_class("Progman", true));
+        assert!(!is_fullscreen_window_class("WorkerW", true));
+        assert!(is_fullscreen_window_class("Chrome_WidgetWin_1", true));
     }
 }
 

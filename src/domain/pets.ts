@@ -27,6 +27,20 @@ export interface PetCatalogV1 {
   pets: PetCatalogEntryV1[];
 }
 
+export interface LocalPetV1 {
+  id: string;
+  version: "local";
+  displayName: string;
+  description: string;
+  folderName: string;
+}
+
+export interface LocalPetScanV1 {
+  folderPath: string;
+  pets: LocalPetV1[];
+  errors: string[];
+}
+
 export type StandardAnimationState =
   | "idle"
   | "running-right"

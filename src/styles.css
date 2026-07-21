@@ -676,12 +676,16 @@ input[type="range"]::-webkit-slider-thumb {
   border: 0;
 }
 
+html.view-pet,
 body.view-pet {
   background: transparent;
   overflow: hidden;
 }
+html.view-bubble,
 body.view-bubble {
   background: transparent;
+}
+body.view-bubble {
   padding: 12px 16px 20px;
   overflow: hidden;
 }
@@ -701,6 +705,26 @@ body.view-bubble {
   display: grid;
   place-items: center;
 }
+.app-load-error {
+  min-height: 720px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  color: var(--muted);
+}
+.app-load-error strong {
+  color: #242322;
+  font-size: 20px;
+}
+.app-load-error button {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 18px;
+  color: #fff;
+  background: var(--accent);
+  cursor: pointer;
+}
 .app-loading span {
   width: 24px;
   height: 24px;
@@ -708,6 +732,88 @@ body.view-bubble {
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+.local-pet-panel,
+.pet-gallery-recommendation {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--divider);
+  border-radius: 15px;
+  background: #fff;
+}
+.pet-gallery-recommendation {
+  align-items: center;
+  margin-bottom: 14px;
+  border-color: #d9cef9;
+  background: linear-gradient(135deg, #f8f4ff, #fff);
+}
+.pet-gallery-recommendation p {
+  margin: 5px 0 3px;
+  color: #5f566d;
+  font-size: 12px;
+}
+.pet-gallery-recommendation small {
+  color: #82798d;
+  font-size: 11px;
+}
+.local-pet-panel p,
+.local-pet-row p {
+  margin: 6px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.pet-gallery-recommendation a {
+  flex: 0 0 auto;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.local-pet-panel code {
+  display: block;
+  max-width: 430px;
+  overflow: hidden;
+  color: #716b65;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.local-pet-actions,
+.about-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.local-pet-actions {
+  justify-content: flex-end;
+}
+.local-pet-errors {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  color: #9b4e42;
+  background: #fff1ee;
+  font-size: 12px;
+}
+.local-pet-row {
+  margin-bottom: 12px;
+}
+.about-intro {
+  margin: 8px 0 5px;
+  color: #4e4944;
+  text-align: center;
+}
+.about-actions {
+  justify-content: center;
+  margin: 22px 0;
+}
+.about-actions a {
+  text-decoration: none;
 }
 @keyframes spin {
   to {

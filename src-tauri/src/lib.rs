@@ -5,7 +5,7 @@ mod runtime;
 mod settings;
 
 use futures_util::StreamExt;
-use pets::{PetCatalogEntryV1, PetCatalogV1};
+use pets::{LocalPetScanV1, PetCatalogEntryV1, PetCatalogV1};
 use serde::Serialize;
 use settings::{SettingsStore, SettingsV1};
 use std::{
@@ -23,6 +23,8 @@ use tauri_plugin_updater::UpdaterExt;
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAX_CATALOG_BYTES: usize = 2 * 1024 * 1024;
 const MAX_PET_PACKAGE_BYTES: u64 = 25 * 1024 * 1024;
+const PROJECT_URL: &str = "https://github.com/taoquanooo/DeskMate";
+const PET_GALLERY_URL: &str = "https://codex-pet.org/zh/";
 
 pub struct AppState {
     settings: Mutex<SettingsV1>,
@@ -52,6 +54,15 @@ struct UpdateStatus {
     version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     notes: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PetChangedPayload {
+    id: String,
+    version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    spritesheet_path: Option<PathBuf>,
 }
 
 #[tauri::command]
@@ -124,6 +135,81 @@ fn pet_select(app: tauri::AppHandle, id: String, version: String) -> Result<(), 
 }
 
 #[tauri::command]
+fn pet_local_refresh(app: tauri::AppHandle) -> LocalPetScanV1 {
+    pets::scan_local_pets(&custom_pets_root(&app))
+}
+
+#[tauri::command]
+fn pet_local_folder_open(app: tauri::AppHandle) -> Result<(), String> {
+    let root = custom_pets_root(&app);
+    std::fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+    std::process::Command::new("explorer.exe")
+        .arg(root)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("无法打开自定义宠物文件夹：{error}"))
+}
+
+#[tauri::command]
+fn pet_current(app: tauri::AppHandle) -> PetChangedPayload {
+    let selected = app
+        .state::<AppState>()
+        .settings
+        .lock()
+        .expect("settings poisoned")
+        .selected_pet
+        .clone();
+    resolve_pet_payload(&app, &selected.id, &selected.version).unwrap_or_else(|_| {
+        PetChangedPayload {
+            id: "yanghao".into(),
+            version: "1.0.0".into(),
+            spritesheet_path: None,
+        }
+    })
+}
+
+#[tauri::command]
+fn project_url_open() -> Result<(), String> {
+    std::process::Command::new("explorer.exe")
+        .arg(PROJECT_URL)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("无法打开 GitHub：{error}"))
+}
+
+#[tauri::command]
+fn project_share_copy() -> Result<(), String> {
+    use std::io::Write as _;
+
+    let mut child = std::process::Command::new("clip.exe")
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("无法启动 Windows 剪贴板：{error}"))?;
+    let mut stdin = child.stdin.take().ok_or("无法连接 Windows 剪贴板")?;
+    stdin
+        .write_all(PROJECT_URL.as_bytes())
+        .map_err(|error| format!("无法复制分享链接：{error}"))?;
+    drop(stdin);
+    let status = child
+        .wait()
+        .map_err(|error| format!("无法完成复制：{error}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Windows 剪贴板未能复制分享链接".into())
+    }
+}
+
+#[tauri::command]
+fn pet_gallery_url_open() -> Result<(), String> {
+    std::process::Command::new("explorer.exe")
+        .arg(PET_GALLERY_URL)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("无法打开 Codex Pet Gallery：{error}"))
+}
+
+#[tauri::command]
 fn pet_recall(app: tauri::AppHandle) -> Result<(), String> {
     runtime::recall_to_cursor_monitor(&app)
 }
@@ -165,6 +251,7 @@ pub fn run() {
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
+            std::fs::create_dir_all(data_dir.join("custom-pets"))?;
             let settings_store = SettingsStore::new(data_dir.join("settings.json"));
             let settings = settings_store.load();
             let catalog = load_cached_catalog(&data_dir);
@@ -232,7 +319,13 @@ pub fn run() {
             pet_catalog_refresh,
             pet_install,
             pet_select,
+            pet_local_refresh,
+            pet_local_folder_open,
+            pet_current,
             pet_recall,
+            project_url_open,
+            project_share_copy,
+            pet_gallery_url_open,
             window_set_click_through,
             updater_check,
             updater_install,
@@ -527,16 +620,7 @@ fn install_downloaded_package(
 
 fn select_pet(app: &tauri::AppHandle, id: &str, version: &str) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let built_in = id == "yanghao" && version == "1.0.0";
-    let spritesheet = state
-        .data_dir
-        .join("pets")
-        .join(id)
-        .join(version)
-        .join("spritesheet.webp");
-    if !built_in && !spritesheet.is_file() {
-        return Err("pet version is not installed".into());
-    }
+    let payload = resolve_pet_payload(app, id, version)?;
     let mut settings = state
         .settings
         .lock()
@@ -547,13 +631,44 @@ fn select_pet(app: &tauri::AppHandle, id: &str, version: &str) -> Result<(), Str
         .settings_store
         .save(&settings)
         .map_err(|error| error.to_string())?;
-    let payload = if built_in {
-        serde_json::json!({ "id": id, "version": version, "spritesheetPath": null })
-    } else {
-        serde_json::json!({ "id": id, "version": version, "spritesheetPath": spritesheet })
-    };
     app.emit("pet://changed", payload)
         .map_err(|error| error.to_string())
+}
+
+fn custom_pets_root(app: &tauri::AppHandle) -> PathBuf {
+    app.state::<AppState>().data_dir.join("custom-pets")
+}
+
+fn resolve_pet_payload(
+    app: &tauri::AppHandle,
+    id: &str,
+    version: &str,
+) -> Result<PetChangedPayload, String> {
+    if id == "yanghao" && version == "1.0.0" {
+        return Ok(PetChangedPayload {
+            id: id.into(),
+            version: version.into(),
+            spritesheet_path: None,
+        });
+    }
+    let spritesheet = if version == "local" {
+        pets::find_local_pet(&custom_pets_root(app), id)?.1
+    } else {
+        app.state::<AppState>()
+            .data_dir
+            .join("pets")
+            .join(id)
+            .join(version)
+            .join("spritesheet.webp")
+    };
+    if !spritesheet.is_file() {
+        return Err("pet version is not installed".into());
+    }
+    Ok(PetChangedPayload {
+        id: id.into(),
+        version: version.into(),
+        spritesheet_path: Some(spritesheet),
+    })
 }
 
 async fn auto_update_selected_pet(app: &tauri::AppHandle) -> Result<(), String> {
@@ -564,6 +679,9 @@ async fn auto_update_selected_pet(app: &tauri::AppHandle) -> Result<(), String> 
         .map_err(|_| "settings lock poisoned")?
         .selected_pet
         .clone();
+    if selected.version == "local" {
+        return Ok(());
+    }
     let current = semver::Version::parse(&selected.version).map_err(|error| error.to_string())?;
     let app_version = semver::Version::parse(APP_VERSION).map_err(|error| error.to_string())?;
     let catalog = state

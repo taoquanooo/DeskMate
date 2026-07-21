@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SettingsV1 } from "./domain/settings";
-import type { PetCatalogV1 } from "./domain/pets";
+import type { LocalPetScanV1, PetCatalogV1 } from "./domain/pets";
 import { Onboarding, type OnboardingChoice } from "./components/Onboarding";
 import { PetWindow } from "./components/PetWindow";
 import { ReminderBubble } from "./components/ReminderBubble";
@@ -13,7 +13,12 @@ import {
   petRecall,
   petCatalogRefresh,
   petInstall,
+  openPetGalleryUrl,
+  petLocalFolderOpen,
+  petLocalRefresh,
   petSelect,
+  openProjectUrl,
+  shareProject,
   settingsGet,
   settingsPatch,
   updaterCheck,
@@ -31,12 +36,55 @@ export function App() {
 
 function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
   const [settings, setSettings] = useState<SettingsV1 | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [catalog, setCatalog] = useState<PetCatalogV1 | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [localPetScan, setLocalPetScan] = useState<LocalPetScanV1>({
+    folderPath: "",
+    pets: [],
+    errors: [],
+  });
 
   useEffect(() => {
-    void settingsGet().then(setSettings);
-  }, []);
+    let active = true;
+    setSettingsError(null);
+    void loadInitialSettings().then(
+      (loaded) => active && setSettings(loaded),
+      (error) => active && setSettingsError(String(error)),
+    );
+    return () => {
+      active = false;
+    };
+  }, [loadAttempt]);
+
+  useEffect(() => {
+    if (!settings?.onboardingComplete) return;
+    let active = true;
+    void petLocalRefresh().then(
+      (scan) => active && setLocalPetScan(scan),
+      (error) =>
+        active &&
+        setLocalPetScan((current) => ({
+          ...current,
+          errors: [`无法扫描自定义宠物：${String(error)}`],
+        })),
+    );
+    return () => {
+      active = false;
+    };
+  }, [settings?.onboardingComplete]);
+
+  if (settingsError)
+    return (
+      <div className="app-load-error" role="alert">
+        <strong>无法加载设置</strong>
+        <span>DeskMate 还没有准备好，请稍后重试。</span>
+        <button type="button" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>
+          重新加载
+        </button>
+      </div>
+    );
   if (!settings)
     return (
       <div className="app-loading" aria-label="正在加载 DeskMate">
@@ -59,6 +107,16 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
   };
 
   if (forceOnboarding || !settings.onboardingComplete) return <Onboarding onFinish={finishOnboarding} />;
+  const refreshLocalPets = async () => {
+    try {
+      setLocalPetScan(await petLocalRefresh());
+    } catch (error) {
+      setLocalPetScan((current) => ({
+        ...current,
+        errors: [`无法扫描自定义宠物：${String(error)}`],
+      }));
+    }
+  };
   const refreshCatalog = async () => {
     try {
       setCatalog(await petCatalogRefresh());
@@ -84,8 +142,30 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
         void petSelect(id, version).then(() => setSettings({ ...settings, selectedPet: { id, version } }))
       }
       onAutostartChange={(enabled) => void autostartSet(enabled)}
+      localPets={localPetScan.pets}
+      localPetFolder={localPetScan.folderPath}
+      localPetErrors={localPetScan.errors}
+      onOpenLocalPetFolder={() => void petLocalFolderOpen().then(refreshLocalPets)}
+      onLocalPetRefresh={() => void refreshLocalPets()}
+      onOpenPetGallery={() => void openPetGalleryUrl()}
+      onOpenProject={() => void openProjectUrl()}
+      onShareProject={shareProject}
     />
   );
+}
+
+export async function loadInitialSettings(): Promise<SettingsV1> {
+  const retryDelays = [0, 150, 300];
+  let lastError: unknown;
+  for (const delayMs of retryDelays) {
+    if (delayMs > 0) await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+    try {
+      return await settingsGet();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
 }
 
 function BubbleWindow() {

@@ -1,7 +1,20 @@
 import { useState } from "react";
-import { Bell, Box, CircleHelp, Heart, MonitorUp, PawPrint, RefreshCw, RotateCcw } from "lucide-react";
+import {
+  Bell,
+  Box,
+  CircleHelp,
+  ExternalLink,
+  FolderOpen,
+  Github,
+  Heart,
+  MonitorUp,
+  PawPrint,
+  RefreshCw,
+  RotateCcw,
+  Share2,
+} from "lucide-react";
 import type { Reminder, ReminderSchedule } from "../domain/reminders";
-import type { PetCatalogV1 } from "../domain/pets";
+import type { LocalPetV1, PetCatalogV1 } from "../domain/pets";
 import type { SettingsV1 } from "../domain/settings";
 import { PetSprite } from "./PetSprite";
 
@@ -18,7 +31,18 @@ export interface SettingsAppProps {
   onPetInstall?: (id: string, version: string) => void;
   onPetSelect?: (id: string, version: string) => void;
   onAutostartChange?: (enabled: boolean) => void;
+  localPets?: LocalPetV1[];
+  localPetFolder?: string;
+  localPetErrors?: string[];
+  onOpenLocalPetFolder?: () => void;
+  onLocalPetRefresh?: () => void;
+  onOpenPetGallery?: () => void;
+  onOpenProject?: () => void;
+  onShareProject?: () => Promise<"shared" | "copied" | "cancelled">;
 }
+
+const PROJECT_URL = "https://github.com/taoquanooo/DeskMate";
+const PET_GALLERY_URL = "https://codex-pet.org/zh/";
 
 const NAV: Array<{ id: Section; label: string; icon: typeof PawPrint }> = [
   { id: "pet", label: "桌宠", icon: PawPrint },
@@ -38,6 +62,14 @@ export function SettingsApp({
   onPetInstall,
   onPetSelect,
   onAutostartChange,
+  localPets = [],
+  localPetFolder,
+  localPetErrors = [],
+  onOpenLocalPetFolder,
+  onLocalPetRefresh,
+  onOpenPetGallery,
+  onOpenProject,
+  onShareProject,
 }: SettingsAppProps) {
   const [settings, setSettings] = useState(initialSettings);
   const [section, setSection] = useState<Section>("pet");
@@ -102,12 +134,20 @@ export function SettingsApp({
             onRefresh={onCatalogRefresh}
             onInstall={onPetInstall}
             onSelect={onPetSelect}
+            localPets={localPets}
+            localPetFolder={localPetFolder}
+            localPetErrors={localPetErrors}
+            onOpenLocalPetFolder={onOpenLocalPetFolder}
+            onLocalPetRefresh={onLocalPetRefresh}
+            onOpenPetGallery={onOpenPetGallery}
           />
         )}
         {section === "about" && (
           <About
             settings={settings}
             onCheckUpdates={onCheckUpdates}
+            onOpenProject={onOpenProject}
+            onShareProject={onShareProject}
             onAutostartChange={(enabled) => {
               persist({ ...settings, autostartEnabled: enabled });
               onAutostartChange?.(enabled);
@@ -309,6 +349,12 @@ function PetLibrary({
   onRefresh,
   onInstall,
   onSelect,
+  localPets,
+  localPetFolder,
+  localPetErrors,
+  onOpenLocalPetFolder,
+  onLocalPetRefresh,
+  onOpenPetGallery,
 }: {
   catalog?: PetCatalogV1 | null;
   error?: string | null;
@@ -316,11 +362,75 @@ function PetLibrary({
   onRefresh?: () => void;
   onInstall?: (id: string, version: string) => void;
   onSelect?: (id: string, version: string) => void;
+  localPets: LocalPetV1[];
+  localPetFolder?: string;
+  localPetErrors: string[];
+  onOpenLocalPetFolder?: () => void;
+  onLocalPetRefresh?: () => void;
+  onOpenPetGallery?: () => void;
 }) {
   const pets = catalog?.pets ?? [];
   return (
     <>
-      <PageHeader title="宠物库" subtitle="从 DeskMate 官方目录选择你的桌面伙伴。" />
+      <PageHeader title="宠物库" subtitle="选择官方宠物，或从本机文件夹导入自己的伙伴。" />
+      <aside className="pet-gallery-recommendation" aria-label="推荐宠物库">
+        <div>
+          <strong>推荐：Codex Pet Gallery</strong>
+          <p>浏览、预览和下载社区制作的 Codex 宠物。</p>
+          <small>下载后放入下方文件夹；DeskMate 会在扫描时检查 v2 图集兼容性。</small>
+        </div>
+        <a
+          className="button button-primary"
+          href={PET_GALLERY_URL}
+          onClick={(event) => {
+            event.preventDefault();
+            onOpenPetGallery?.();
+          }}
+        >
+          <ExternalLink size={15} />
+          浏览 Codex Pet Gallery
+        </a>
+      </aside>
+      <section className="local-pet-panel" aria-label="自定义宠物导入">
+        <div>
+          <strong>自定义宠物文件夹</strong>
+          <p>每只宠物放一个子文件夹，里面放 pet.json 和 spritesheet.webp。</p>
+          {localPetFolder && <code title={localPetFolder}>{localPetFolder}</code>}
+        </div>
+        <div className="local-pet-actions">
+          <button className="button button-secondary" onClick={onOpenLocalPetFolder}>
+            <FolderOpen size={15} />
+            打开自定义宠物文件夹
+          </button>
+          <button className="button button-secondary" onClick={onLocalPetRefresh}>
+            <RefreshCw size={15} />
+            重新扫描
+          </button>
+        </div>
+      </section>
+      {localPetErrors.length > 0 && (
+        <div className="local-pet-errors" role="status">
+          {localPetErrors.map((message) => (
+            <span key={message}>{message}</span>
+          ))}
+        </div>
+      )}
+      {localPets.map((pet) => (
+        <article className="catalog-pet-row local-pet-row" key={`${pet.id}@local`}>
+          <div>
+            <strong>{pet.displayName}</strong>
+            <p>{pet.description}</p>
+            <small>本机文件夹 · {pet.folderName}</small>
+          </div>
+          {selected.id === pet.id && selected.version === "local" ? (
+            <span className="installed-label">当前使用</span>
+          ) : (
+            <button className="button button-primary" onClick={() => onSelect?.(pet.id, "local")}>
+              使用
+            </button>
+          )}
+        </article>
+      ))}
       <div className="library-toolbar">
         <span>
           {error ? "暂时无法连接官方目录，内置宠物仍可使用。" : "宠物包在安装前会验证哈希与图集结构。"}
@@ -376,11 +486,16 @@ function About({
   settings,
   onCheckUpdates,
   onAutostartChange,
+  onOpenProject,
+  onShareProject,
 }: {
   settings: SettingsV1;
   onCheckUpdates?: () => void;
   onAutostartChange: (enabled: boolean) => void;
+  onOpenProject?: () => void;
+  onShareProject?: () => Promise<"shared" | "copied" | "cancelled">;
 }) {
+  const [shareStatus, setShareStatus] = useState<"idle" | "shared" | "copied">("idle");
   return (
     <>
       <PageHeader title="关于 DeskMate" subtitle="一个开源、安静、只属于你电脑的桌面伙伴。" />
@@ -388,11 +503,36 @@ function About({
         <Heart size={32} fill="currentColor" />
       </div>
       <h2 className="about-title">DeskMate v0.1.0</h2>
+      <p className="about-intro">陪伴、提醒和可更换宠物都在本机完成</p>
       <p className="about-copy">程序代码采用 MIT 许可证；杨皓宠物素材采用独立素材许可。</p>
-      <button className="button button-secondary" onClick={onCheckUpdates}>
-        <RefreshCw size={16} />
-        检查更新
-      </button>
+      <div className="about-actions">
+        <a
+          className="button button-secondary"
+          href={PROJECT_URL}
+          onClick={(event) => {
+            event.preventDefault();
+            onOpenProject?.();
+          }}
+        >
+          <Github size={16} />
+          GitHub 开源仓库
+        </a>
+        <button
+          className="button button-secondary"
+          onClick={() =>
+            void onShareProject?.().then((result) => {
+              if (result === "shared" || result === "copied") setShareStatus(result);
+            })
+          }
+        >
+          <Share2 size={16} />
+          {shareStatus === "copied" ? "链接已复制" : shareStatus === "shared" ? "已分享" : "一键分享"}
+        </button>
+        <button className="button button-secondary" onClick={onCheckUpdates}>
+          <RefreshCw size={16} />
+          检查更新
+        </button>
+      </div>
       <div className="about-setting">
         <span>
           <strong>开机时启动 DeskMate</strong>

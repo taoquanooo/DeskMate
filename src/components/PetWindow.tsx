@@ -4,6 +4,7 @@ import {
   emitEvent,
   listenEvent,
   petAssetUrl,
+  petCurrent,
   settingsGet,
   startWindowDrag,
   type PetChangedPayload,
@@ -60,6 +61,7 @@ export function PetWindow() {
     let unlistenAnimation: () => void = () => undefined;
     let unlistenPet: () => void = () => undefined;
     void settingsGet().then((settings) => setScale(settings.pet.scale));
+    void petCurrent().then((pet) => setSpritesheetUrl(petAssetUrl(pet.spritesheetPath)));
     void listenEvent<RuntimeAnimationPayload>("runtime://animation", (payload) => {
       if (!VALID_STATES.has(payload.state as AnimationState)) return;
       const next = {

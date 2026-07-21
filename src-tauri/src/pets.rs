@@ -2,10 +2,10 @@ use image::GenericImageView;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs::File,
     io::{self, Read},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 pub const ALLOWED_FILES: [&str; 3] = ["pet.json", "spritesheet.webp", "ASSET_LICENSE.txt"];
@@ -14,6 +14,8 @@ const ATLAS_WIDTH: u32 = 1536;
 const ATLAS_HEIGHT: u32 = 2288;
 const CELL_WIDTH: u32 = 192;
 const CELL_HEIGHT: u32 = 208;
+const MAX_LOCAL_MANIFEST_BYTES: u64 = 64 * 1024;
+const MAX_LOCAL_SPRITESHEET_BYTES: u64 = 25 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum PackageError {
@@ -66,6 +68,130 @@ pub struct PetCatalogEntryV1 {
     pub package_url: String,
     pub sha256: String,
     pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalPetV1 {
+    pub id: String,
+    pub version: String,
+    pub display_name: String,
+    pub description: String,
+    pub folder_name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalPetScanV1 {
+    pub folder_path: String,
+    pub pets: Vec<LocalPetV1>,
+    pub errors: Vec<String>,
+}
+
+pub fn scan_local_pets(root: &Path) -> LocalPetScanV1 {
+    let mut scan = LocalPetScanV1 {
+        folder_path: root.display().to_string(),
+        pets: Vec::new(),
+        errors: Vec::new(),
+    };
+    if let Err(error) = std::fs::create_dir_all(root) {
+        scan.errors
+            .push(format!("无法创建自定义宠物文件夹：{error}"));
+        return scan;
+    }
+    let entries = match std::fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) => {
+            scan.errors
+                .push(format!("无法读取自定义宠物文件夹：{error}"));
+            return scan;
+        }
+    };
+    let mut folders = entries.filter_map(Result::ok).collect::<Vec<_>>();
+    folders.sort_by_key(|entry| entry.file_name());
+    let mut id_folders = HashMap::<String, String>::new();
+    let mut duplicate_ids = HashSet::<String>::new();
+
+    for entry in folders {
+        let folder_name = entry.file_name().to_string_lossy().into_owned();
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(error) => {
+                scan.errors
+                    .push(format!("{folder_name}：无法读取（{error}）"));
+                continue;
+            }
+        };
+        if !file_type.is_dir() || file_type.is_symlink() {
+            continue;
+        }
+        let manifest = match validate_local_pet_directory(&entry.path()) {
+            Ok(manifest) => manifest,
+            Err(error) => {
+                scan.errors.push(format!("{folder_name}：{error}"));
+                continue;
+            }
+        };
+        if manifest.id == "yanghao" {
+            scan.errors
+                .push(format!("{folder_name}：宠物 id ‘yanghao’ 为内置宠物保留"));
+            continue;
+        }
+        if let Some(first_folder) = id_folders.insert(manifest.id.clone(), folder_name.clone()) {
+            duplicate_ids.insert(manifest.id.clone());
+            scan.errors.push(format!(
+                "{folder_name}：宠物 id ‘{}’ 已被文件夹 {first_folder} 使用",
+                manifest.id
+            ));
+        }
+        scan.pets.push(LocalPetV1 {
+            id: manifest.id,
+            version: "local".into(),
+            display_name: manifest.display_name,
+            description: manifest.description,
+            folder_name,
+        });
+    }
+    scan.pets.retain(|pet| !duplicate_ids.contains(&pet.id));
+    scan
+}
+
+pub fn find_local_pet(root: &Path, id: &str) -> Result<(PetManifestV2, PathBuf), String> {
+    let scan = scan_local_pets(root);
+    let pet = scan
+        .pets
+        .into_iter()
+        .find(|pet| pet.id == id)
+        .ok_or_else(|| format!("找不到有效的本地宠物 {id}"))?;
+    let directory = root.join(&pet.folder_name);
+    let manifest = validate_local_pet_directory(&directory)?;
+    if manifest.id != id {
+        return Err("宠物文件在扫描后发生了变化，请重新扫描".into());
+    }
+    Ok((manifest, directory.join("spritesheet.webp")))
+}
+
+fn validate_local_pet_directory(directory: &Path) -> Result<PetManifestV2, String> {
+    let manifest_path = directory.join("pet.json");
+    let spritesheet_path = directory.join("spritesheet.webp");
+    let manifest_bytes = read_regular_local_file(&manifest_path, MAX_LOCAL_MANIFEST_BYTES)
+        .map_err(|error| format!("pet.json {error}"))?;
+    let spritesheet_bytes = read_regular_local_file(&spritesheet_path, MAX_LOCAL_SPRITESHEET_BYTES)
+        .map_err(|error| format!("spritesheet.webp {error}"))?;
+    let manifest = validate_manifest(&manifest_bytes).map_err(|error| error.to_string())?;
+    validate_spritesheet(&spritesheet_bytes).map_err(|error| error.to_string())?;
+    Ok(manifest)
+}
+
+fn read_regular_local_file(path: &Path, maximum_bytes: u64) -> Result<Vec<u8>, String> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|error| format!("无法读取：{error}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("必须是普通文件，不能使用链接".into());
+    }
+    if metadata.len() > maximum_bytes {
+        return Err("文件过大".into());
+    }
+    std::fs::read(path).map_err(|error| format!("无法读取：{error}"))
 }
 
 pub fn validate_catalog(
@@ -250,7 +376,7 @@ fn io_error(error: impl std::fmt::Display) -> PackageError {
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_package, PackageError};
+    use super::{scan_local_pets, validate_package, PackageError};
     use std::io::Write;
 
     fn write_zip(path: &std::path::Path, names: &[&str]) {
@@ -295,5 +421,41 @@ mod tests {
             validate_package(&path, 1_000_000),
             Err(PackageError::UnexpectedFile("script.exe".into()))
         );
+    }
+
+    #[test]
+    fn scans_valid_local_pets_and_reports_invalid_folders() {
+        let directory = tempfile::tempdir().unwrap();
+        let valid = directory.path().join("studio-cat");
+        std::fs::create_dir_all(&valid).unwrap();
+        std::fs::write(
+            valid.join("pet.json"),
+            r#"{
+                "id":"studio-cat",
+                "displayName":"工作室小猫",
+                "description":"本机宠物",
+                "spriteVersionNumber":2,
+                "spritesheetPath":"spritesheet.webp"
+            }"#
+            .as_bytes(),
+        )
+        .unwrap();
+        std::fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../assets/pets/yanghao/spritesheet.webp"),
+            valid.join("spritesheet.webp"),
+        )
+        .unwrap();
+        let invalid = directory.path().join("broken-pet");
+        std::fs::create_dir_all(&invalid).unwrap();
+        std::fs::write(invalid.join("pet.json"), b"not json").unwrap();
+        std::fs::write(invalid.join("spritesheet.webp"), b"not webp").unwrap();
+
+        let scan = scan_local_pets(directory.path());
+
+        assert_eq!(scan.pets.len(), 1);
+        assert_eq!(scan.pets[0].id, "studio-cat");
+        assert_eq!(scan.pets[0].version, "local");
+        assert!(scan.errors.iter().any(|error| error.contains("broken-pet")));
     }
 }

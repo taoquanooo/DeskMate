@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { PetCatalogV1 } from "../domain/pets";
+import type { LocalPetScanV1, PetCatalogV1 } from "../domain/pets";
 import { DEFAULT_SETTINGS, mergeSettings, type SettingsV1 } from "../domain/settings";
 
 export interface RuntimeAnimationPayload {
@@ -27,6 +27,9 @@ export interface PetChangedPayload {
   version: string;
   spritesheetPath?: string | null;
 }
+
+export const PROJECT_URL = "https://github.com/taoquanooo/DeskMate";
+export const PET_GALLERY_URL = "https://codex-pet.org/zh/";
 
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
 
@@ -60,6 +63,20 @@ export async function petSelect(id: string, version: string) {
   return invoke("pet_select", { id, version });
 }
 
+export async function petLocalRefresh(): Promise<LocalPetScanV1> {
+  if (!isTauri()) return { folderPath: "DeskMate/custom-pets", pets: [], errors: [] };
+  return invoke("pet_local_refresh");
+}
+
+export async function petLocalFolderOpen() {
+  if (isTauri()) await invoke("pet_local_folder_open");
+}
+
+export async function petCurrent(): Promise<PetChangedPayload> {
+  if (!isTauri()) return { id: "yanghao", version: "1.0.0", spritesheetPath: null };
+  return invoke("pet_current");
+}
+
 export async function petRecall() {
   if (isTauri()) await invoke("pet_recall");
 }
@@ -75,6 +92,58 @@ export async function updaterCheck(): Promise<UpdateStatus> {
 
 export async function updaterInstall() {
   if (isTauri()) await invoke("updater_install");
+}
+
+export async function openProjectUrl() {
+  if (isTauri()) {
+    await invoke("project_url_open");
+    return;
+  }
+  window.open(PROJECT_URL, "_blank", "noopener,noreferrer");
+}
+
+export async function openPetGalleryUrl() {
+  if (isTauri()) {
+    await invoke("pet_gallery_url_open");
+    return;
+  }
+  window.open(PET_GALLERY_URL, "_blank", "noopener,noreferrer");
+}
+
+export async function shareProject(): Promise<"shared" | "copied" | "cancelled"> {
+  if (isTauri()) {
+    await invoke("project_share_copy");
+    return "copied";
+  }
+  if (typeof navigator.share === "function") {
+    try {
+      await navigator.share({
+        title: "DeskMate",
+        text: "一个开源、安静、支持自定义宠物的 Windows 桌面伙伴。",
+        url: PROJECT_URL,
+      });
+      return "shared";
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return "cancelled";
+    }
+  }
+  try {
+    await navigator.clipboard?.writeText(PROJECT_URL);
+    if (navigator.clipboard) return "copied";
+  } catch {
+    // Some embedded browsers deny the asynchronous clipboard API.
+  }
+  const input = document.createElement("textarea");
+  input.value = PROJECT_URL;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.appendChild(input);
+  input.select();
+  const copied = document.execCommand?.("copy") ?? false;
+  input.remove();
+  if (!copied) throw new Error("无法复制分享链接");
+  return "copied";
 }
 
 export async function listenEvent<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
