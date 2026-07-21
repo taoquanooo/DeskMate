@@ -376,7 +376,10 @@ fn io_error(error: impl std::fmt::Display) -> PackageError {
 
 #[cfg(test)]
 mod tests {
-    use super::{scan_local_pets, validate_package, PackageError};
+    use super::{
+        scan_local_pets, validate_package, PackageError, ATLAS_HEIGHT, ATLAS_WIDTH, CELL_HEIGHT,
+        CELL_WIDTH, REQUIRED_FRAME_COUNTS,
+    };
     use std::io::Write;
 
     fn write_zip(path: &std::path::Path, names: &[&str]) {
@@ -388,6 +391,29 @@ mod tests {
             zip.write_all(b"test").unwrap();
         }
         zip.finish().unwrap();
+    }
+
+    fn write_valid_v2_spritesheet(path: &std::path::Path) {
+        let mut atlas = image::RgbaImage::new(ATLAS_WIDTH, ATLAS_HEIGHT);
+        for (row, frame_count) in REQUIRED_FRAME_COUNTS.into_iter().enumerate() {
+            for column in 0..frame_count {
+                atlas.put_pixel(
+                    column as u32 * CELL_WIDTH + CELL_WIDTH / 2,
+                    row as u32 * CELL_HEIGHT + CELL_HEIGHT / 2,
+                    image::Rgba([255, 255, 255, 255]),
+                );
+            }
+        }
+
+        let file = std::fs::File::create(path).unwrap();
+        image::codecs::webp::WebPEncoder::new_lossless(file)
+            .encode(
+                atlas.as_raw(),
+                ATLAS_WIDTH,
+                ATLAS_HEIGHT,
+                image::ExtendedColorType::Rgba8,
+            )
+            .unwrap();
     }
 
     #[test]
@@ -440,12 +466,7 @@ mod tests {
             .as_bytes(),
         )
         .unwrap();
-        std::fs::copy(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../assets/pets/yanghao/spritesheet.webp"),
-            valid.join("spritesheet.webp"),
-        )
-        .unwrap();
+        write_valid_v2_spritesheet(&valid.join("spritesheet.webp"));
         let invalid = directory.path().join("broken-pet");
         std::fs::create_dir_all(&invalid).unwrap();
         std::fs::write(invalid.join("pet.json"), b"not json").unwrap();
