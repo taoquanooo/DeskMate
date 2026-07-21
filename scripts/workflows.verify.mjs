@@ -4,6 +4,7 @@ import test from "node:test";
 
 const workflowUrl = new URL("../.github/workflows/build-windows.yml", import.meta.url);
 const previewConfigUrl = new URL("../src-tauri/tauri.preview.conf.json", import.meta.url);
+const gitAttributesUrl = new URL("../.gitattributes", import.meta.url);
 
 test("the cloud preview workflow verifies and uploads an unsigned NSIS installer", async () => {
   const workflow = await readFile(workflowUrl, "utf8");
@@ -29,4 +30,10 @@ test("the cloud preview flavor does not require updater signing secrets", async 
   const config = JSON.parse(await readFile(previewConfigUrl, "utf8"));
 
   assert.equal(config.bundle.createUpdaterArtifacts, false);
+});
+
+test("Windows checkouts keep text files in Prettier's LF format", async () => {
+  const attributes = await readFile(gitAttributesUrl, "utf8");
+
+  assert.match(attributes, /^\* text=auto eol=lf$/m);
 });
