@@ -250,7 +250,7 @@ mod tests {
         std::fs::write(&path, "{broken").unwrap();
         let loaded = SettingsStore::new(path).load_value();
         assert_eq!(loaded["schemaVersion"], 1);
-        assert_eq!(loaded["pet"]["speed"], 80);
+        assert_eq!(loaded["pet"]["speed"].as_f64(), Some(80.0));
     }
 
     #[test]
