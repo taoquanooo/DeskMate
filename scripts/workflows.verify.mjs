@@ -4,6 +4,8 @@ import test from "node:test";
 
 const workflowUrl = new URL("../.github/workflows/build-windows.yml", import.meta.url);
 const previewConfigUrl = new URL("../src-tauri/tauri.preview.conf.json", import.meta.url);
+const tauriConfigUrl = new URL("../src-tauri/tauri.conf.json", import.meta.url);
+const cargoManifestUrl = new URL("../src-tauri/Cargo.toml", import.meta.url);
 const gitAttributesUrl = new URL("../.gitattributes", import.meta.url);
 
 test("the cloud preview workflow verifies and uploads an unsigned NSIS installer", async () => {
@@ -30,6 +32,17 @@ test("the cloud preview flavor does not require updater signing secrets", async 
   const config = JSON.parse(await readFile(previewConfigUrl, "utf8"));
 
   assert.equal(config.bundle.createUpdaterArtifacts, false);
+});
+
+test("the Tauri dependency enables the asset protocol used by the app config", async () => {
+  const config = JSON.parse(await readFile(tauriConfigUrl, "utf8"));
+  const cargoManifest = await readFile(cargoManifestUrl, "utf8");
+
+  assert.equal(config.app.security.assetProtocol.enable, true);
+  assert.match(
+    cargoManifest,
+    /^tauri\s*=\s*\{[^\n]*features\s*=\s*\[[^\]]*"protocol-asset"[^\]]*\][^\n]*\}$/m,
+  );
 });
 
 test("Windows checkouts keep text files in Prettier's LF format", async () => {
