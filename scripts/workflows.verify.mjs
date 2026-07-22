@@ -65,10 +65,7 @@ test("custom-pet files require runtime validation before asset authorization", a
   const config = JSON.parse(await readFile(tauriConfigUrl, "utf8"));
   const scope = config.app.security.assetProtocol.scope;
 
-  assert.equal(
-    scope.some((entry) => entry.includes("custom-pets")),
-    false,
-  );
+  assert.deepEqual(scope, ["$APPDATA/studio.deskmate.app/pets/**"]);
 });
 
 test("Windows checkouts keep text files in Prettier's LF format", async () => {
