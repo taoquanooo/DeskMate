@@ -20,7 +20,7 @@ import type { SettingsV1 } from "../domain/settings";
 import { PROJECT_URL, PET_GALLERY_URL, type PetChangedPayload } from "../lib/tauri";
 import { PetPreview } from "./PetPreview";
 import { PetSizeSetting } from "./PetSizeSetting";
-import { PetSprite } from "./PetSprite";
+import { PetThumbnail } from "./PetThumbnail";
 
 export type UpdateUi = {
   state: "idle" | "checking" | "up-to-date" | "ready" | "error";
@@ -460,20 +460,27 @@ function PetLibrary({
       )}
       {localPets.map((pet) => (
         <article className="catalog-pet-row local-pet-row" key={`${pet.id}@local`}>
-          <div>
+          <PetThumbnail
+            displayName={pet.displayName}
+            spritesheetPath={pet.spritesheetPath}
+            spriteVersionNumber={pet.spriteVersionNumber}
+          />
+          <div className="pet-library-copy">
             <strong>{pet.displayName}</strong>
             <p>{pet.description}</p>
             <small>
               本机文件夹 · {pet.folderName} · Codex v{pet.spriteVersionNumber}
             </small>
           </div>
-          {selected.id === pet.id && selected.version === "local" ? (
-            <span className="installed-label">当前使用</span>
-          ) : (
-            <button className="button button-primary" onClick={() => onSelect?.(pet.id, "local")}>
-              使用
-            </button>
-          )}
+          <div className="pet-library-actions">
+            {selected.id === pet.id && selected.version === "local" ? (
+              <span className="installed-label">当前使用</span>
+            ) : (
+              <button className="button button-primary" onClick={() => onSelect?.(pet.id, "local")}>
+                使用
+              </button>
+            )}
+          </div>
         </article>
       ))}
       <div className="library-toolbar">
@@ -486,25 +493,28 @@ function PetLibrary({
         </button>
       </div>
       <article className="library-row">
-        <PetSprite state="waving" elapsedMs={140} scale={0.5} />
-        <div>
+        <PetThumbnail displayName="杨皓" spriteVersionNumber={2} />
+        <div className="pet-library-copy">
           <strong>杨皓</strong>
           <p>友善的骑行伙伴</p>
           <span className="installed-label">
             已安装 · {selected.id === "yanghao" ? "当前使用" : "可使用"}
           </span>
         </div>
-        {selected.id !== "yanghao" && (
-          <button className="button button-primary" onClick={() => onSelect?.("yanghao", "1.0.0")}>
-            使用
-          </button>
-        )}
+        <div className="pet-library-actions">
+          {selected.id !== "yanghao" && (
+            <button className="button button-primary" onClick={() => onSelect?.("yanghao", "1.0.0")}>
+              使用
+            </button>
+          )}
+        </div>
       </article>
       {pets
         .filter((pet) => !(pet.id === "yanghao" && pet.version === "1.0.0"))
         .map((pet) => (
           <article className="catalog-pet-row" key={`${pet.id}@${pet.version}`}>
-            <div>
+            <PetThumbnail displayName={pet.displayName} previewUrl={pet.previewUrl} />
+            <div className="pet-library-copy">
               <strong>
                 {pet.displayName} · v{pet.version}
               </strong>
@@ -513,7 +523,7 @@ function PetLibrary({
                 {pet.author} · {pet.assetLicense}
               </small>
             </div>
-            <div>
+            <div className="pet-library-actions">
               <button className="button button-secondary" onClick={() => onInstall?.(pet.id, pet.version)}>
                 下载
               </button>

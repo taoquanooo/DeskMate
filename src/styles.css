@@ -39,6 +39,21 @@ button {
   transform-origin: center bottom;
 }
 
+.pet-thumbnail {
+  width: 92px;
+  height: 92px;
+  flex: 0 0 92px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--accent-soft);
+  object-fit: contain;
+}
+.pet-thumbnail-placeholder {
+  color: var(--accent);
+}
+
 .settings-shell {
   min-height: 720px;
   display: grid;
@@ -449,11 +464,9 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 18px;
   overflow: hidden;
 }
-.library-row .pet-sprite {
-  margin: -52px;
-}
-.library-row > div:nth-of-type(2) {
+.pet-library-copy {
   flex: 1;
+  min-width: 0;
 }
 .library-row p {
   color: var(--muted);
@@ -480,8 +493,9 @@ input[type="range"]::-webkit-slider-thumb {
 .catalog-pet-row small {
   color: var(--muted);
 }
-.catalog-pet-row > div:last-child {
+.pet-library-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
 .about-mark {

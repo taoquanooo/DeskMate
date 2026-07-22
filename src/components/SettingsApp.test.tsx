@@ -53,6 +53,26 @@ describe("SettingsApp", () => {
     render(
       <SettingsApp
         initialSettings={DEFAULT_SETTINGS}
+        catalog={{
+          schemaVersion: 1,
+          generatedAt: "2026-07-22T00:00:00.000Z",
+          pets: [
+            {
+              id: "official-bear",
+              version: "1.0.0",
+              displayName: "官方小熊",
+              description: "来自官方目录",
+              author: "DeskMate",
+              assetLicense: "CC-BY-4.0",
+              spriteVersionNumber: 2,
+              minAppVersion: "0.1.0",
+              previewUrl: "https://example.com/bear-preview.webp",
+              packageUrl: "https://example.com/bear.zip",
+              sha256: "a".repeat(64),
+              sizeBytes: 1024,
+            },
+          ],
+        }}
         localPets={[
           {
             id: "studio-cat",
@@ -72,7 +92,12 @@ describe("SettingsApp", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "宠物库" }));
-    expect(screen.getByText("工作室小猫")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "杨皓预览" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "工作室小猫预览" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "官方小熊预览" })).toHaveAttribute(
+      "src",
+      "https://example.com/bear-preview.webp",
+    );
     fireEvent.click(screen.getByRole("button", { name: "打开自定义宠物文件夹" }));
     fireEvent.click(screen.getByRole("button", { name: "重新扫描" }));
     const galleryLink = screen.getByRole("link", { name: "浏览 Codex Pet Gallery" });

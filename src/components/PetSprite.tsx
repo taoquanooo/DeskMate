@@ -19,6 +19,7 @@ export interface PetSpriteProps {
   directionDegrees?: number;
   scale?: number;
   className?: string;
+  ariaLabel?: string;
   spritesheetUrl?: string;
   spriteVersionNumber?: 1 | 2;
 }
@@ -29,6 +30,7 @@ export function PetSprite({
   directionDegrees = 0,
   scale = 1,
   className = "",
+  ariaLabel,
   spritesheetUrl = "/pets/yanghao/spritesheet.webp",
   spriteVersionNumber = 2,
 }: PetSpriteProps) {
@@ -40,7 +42,7 @@ export function PetSprite({
 
   return (
     <div
-      aria-label={label}
+      aria-label={ariaLabel ?? label}
       className={`pet-sprite ${className}`.trim()}
       data-row={cell.row}
       data-column={cell.column}
