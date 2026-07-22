@@ -41,6 +41,16 @@ test("the updater plugin always has a deserializable startup config", async () =
   assert.equal(typeof config.plugins?.updater, "object");
   assert.notEqual(config.plugins.updater, null);
   assert.equal(typeof config.plugins.updater.pubkey, "string");
+  assert.match(
+    config.plugins.updater.pubkey,
+    /^[A-Za-z0-9+/]+={0,2}$/,
+    "release builds need the complete Tauri public key in app config",
+  );
+  assert.match(
+    Buffer.from(config.plugins.updater.pubkey, "base64").toString("utf8"),
+    /^untrusted comment: minisign public key: [A-F0-9]+\r?\nRW[A-Za-z0-9+/=]+\r?\n$/,
+    "the updater public key must decode to the two-line minisign format",
+  );
 });
 
 test("the Tauri dependency enables the asset protocol used by the app config", async () => {

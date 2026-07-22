@@ -63,7 +63,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": ""
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERDMUFGRTFDQjAzODc0NjQKUldSa2REaXdIUDRhM0NYd1JieDI2TXZYVnFnL2Z3REN4cUc1aGFIWGJmZTNNWldqSDJlUTgvSzYK"
     }
   },
   "bundle": {
