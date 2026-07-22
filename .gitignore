@@ -10,6 +10,7 @@ src-tauri/target/
 !.env.example
 .playwright-cli/
 .tools/
+.superpowers/
 .xwin-cache/
 .pnpm-store/
 rustup-init.exe
