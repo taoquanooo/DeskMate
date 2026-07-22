@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+          targets: x86_64-pc-windows-msvc
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
+      - name: Build official pet package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-pets | Out-Null
+          Compress-Archive -LiteralPath assets/pets/yanghao/pet.json,assets/pets/yanghao/spritesheet.webp,assets/pets/yanghao/ASSET_LICENSE.txt -DestinationPath release-pets/yanghao-1.0.0.zip
+      - id: tauri
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          DESKMATE_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_SIGNING_PUBLIC_KEY }}
+          DESKMATE_CATALOG_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/catalog/v1/catalog.json
+          DESKMATE_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: DeskMate ${{ github.ref_name }}
+          releaseBody: |
+            DeskMate 首次公开版本，提供 Windows 10/11 x64 按用户安装的 NSIS 安装包。
+            安装包暂未进行商业 Windows 代码签名，但应用内更新产物使用 Tauri 项目密钥签名。
+          releaseDraft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generateReleaseNotes: true
+          updaterJsonPreferNsis: true
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true
+          args: --target x86_64-pc-windows-msvc --bundles nsis
+          releaseAssetNamePattern: DeskMate_[version]_x64[setup].[ext]
+      - name: Upload immutable pet assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" release-pets/yanghao-1.0.0.zip catalog/v1/previews/yanghao.png --clobber
+      - name: Generate Pages catalog
+        run: >-
+          node scripts/generate-catalog.mjs
+          --owner "${{ github.repository_owner }}"
+          --repo "${{ github.event.repository.name }}"
+          --tag "${{ github.ref_name }}"
+          --package release-pets/yanghao-1.0.0.zip
+          --preview catalog/v1/previews/yanghao.png
+          --out pages/catalog/v1/catalog.json
+      - run: Copy-Item catalog/index.html pages/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages
+      - id: pages
+        uses: actions/deploy-pages@v4

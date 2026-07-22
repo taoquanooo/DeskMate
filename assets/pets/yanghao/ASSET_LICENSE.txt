@@ -1,0 +1,10 @@
+Yanghao Pet Asset License
+
+Copyright (c) 2026 DeskMate contributors. All rights reserved.
+
+Permission is granted to redistribute this unmodified Yanghao pet package as part
+of an unmodified official DeskMate release and to display it inside DeskMate.
+No permission is granted to extract, modify, sell, sublicense, or use the artwork
+in another product, service, model-training dataset, or promotional campaign.
+
+The DeskMate source-code license does not apply to this pet artwork.

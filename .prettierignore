@@ -1,0 +1,10 @@
+node_modules
+.pnpm-store
+dist
+src-tauri/target
+src-tauri/gen
+pnpm-lock.yaml
+*.webp
+*.png
+*.ico
+*.icns
