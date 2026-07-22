@@ -2,7 +2,7 @@
 
 ## 目标
 
-新增官方宠物时不修改 Windows 安装包，也不重新编译 DeskMate。安装包只保留杨皓作为离线兜底；其余宠物由现有在线目录发现，用户点击安装后才下载到本机应用数据目录。
+先发布一次 `v0.1.1` 兼容更新，使在线官方导入与本地导入一样自动识别 Codex v1/v2，并允许宠物包只包含 `pet.json` 和 `spritesheet.webp`。此后新增官方宠物时不修改 Windows 安装包，也不重新编译 DeskMate。安装包只保留杨皓作为离线兜底；其余宠物由在线目录发现，用户点击安装后才下载到本机应用数据目录。
 
 ## 方案比较
 
@@ -10,7 +10,7 @@
 
 把宠物源文件放在不会被 Vite 复制进安装包的 `online-pets/<id>/`。轻量 GitHub Action 只做校验、ZIP 打包、Release 资产上传和 Pages 目录部署，不安装 Rust，也不构建 Windows 程序。
 
-优点：兼容已经发布的 v0.1.0；无需发布新版应用；继续使用现有 HTTPS、SHA-256、大小和 ZIP 安全校验。缺点：GitHub 上会有一个独立的宠物资源 Release。
+优点：保留现有 HTTPS、SHA-256、大小和 ZIP 安全校验；完成一次 v0.1.1 后，后续宠物更新无需发布新版应用。缺点：首次需要发布一个兼容更新，GitHub 上会有一个独立的宠物资源 Release。
 
 ### 方案 B：直接从 GitHub Pages 下载宠物
 
@@ -35,7 +35,7 @@ catalog/
   publish-pets.yml
 ```
 
-每只宠物仍只要求用户维护 `pet.json` 和 `spritesheet.webp`。目录生成器采用以下默认目录元数据：
+每只宠物只要求用户维护 `pet.json` 和 `spritesheet.webp`，可选携带 `ASSET_LICENSE.txt`。目录生成器从 WebP 尺寸自动识别 `spriteVersionNumber`，并采用以下默认目录元数据：
 
 - `version`: `1.0.0`
 - `author`: `DeskMate contributors`
@@ -46,37 +46,42 @@ catalog/
 
 ## 发布数据流
 
-1. 合并对 `online-pets/**`、目录脚本或宠物工作流的修改到 `main`。
-2. `publish-pets.yml` 逐个校验目录、清单、WebP 文件和 v2 图集尺寸。
-3. Action 为每只宠物生成 `<id>-<version>.zip`，计算 SHA-256 和文件大小。
-4. ZIP 上传到独立的 GitHub Release 标签 `pets-v1`。
-5. Action 生成完整 `catalog/v1/catalog.json`，其 `packageUrl` 指向 GitHub Release 资产。
-6. Pages 部署目录页面和 JSON；不会调用 Tauri、Cargo 或 Windows 构建。
-7. 已安装的 DeskMate 启动约 20 秒后检查目录，此后每 6 小时检查；用户也可在宠物库手动刷新。
+1. 一次性发布 v0.1.1：在线包清单允许省略 `spriteVersionNumber`，安装器根据 `1536x1872` 或 `1536x2288` 自动识别 v1/v2；`ASSET_LICENSE.txt` 改为可选。
+2. 合并对 `online-pets/**`、目录脚本或宠物工作流的修改到 `main`。
+3. `publish-pets.yml` 逐个校验目录、清单、WebP 文件和 v1/v2 图集尺寸。
+4. Action 为每只宠物生成 `<id>-<version>.zip`，计算 SHA-256 和文件大小。
+5. ZIP 上传到独立的 GitHub Release 标签 `pets-v1`。
+6. Action 生成完整 `catalog/v1/catalog.json`，其 `packageUrl` 指向 GitHub Release 资产。
+7. Pages 部署目录页面和 JSON；宠物专用流程不会调用 Tauri、Cargo 或 Windows 构建。
+8. 已安装的 DeskMate 启动约 20 秒后检查目录，此后每 6 小时检查；用户也可在宠物库手动刷新。
 
 ## 兼容与预览
 
-- 在线官方包继续遵守 v2 严格校验；缺少 `spriteVersionNumber` 的已确认 v2 宠物在迁移时补为 `2`。
+- 在线官方包支持 `1536x1872` 的 v1 和 `1536x2288` 的 v2；声明版本时必须与实际尺寸一致，省略时由程序自动识别。
+- ZIP 根目录必须有 `pet.json` 和 `spritesheet.webp`，可选有 `ASSET_LICENSE.txt`，禁止其他文件和路径。
 - 首版在线目录使用统一的轻量占位预览图，避免要求用户额外制作预览文件；宠物安装和运行不受影响。
 - 后续可选支持每个目录增加 `preview.png`，但不作为本次必需范围。
 
 ## 错误处理
 
-- 任一宠物缺少文件、JSON 无效、id 与目录不符、WebP 无效或版本重复时，工作流失败且不部署新目录。
+- 任一宠物缺少必需文件、JSON 无效、id 与目录不符、WebP 不是有效 v1/v2 图集或版本重复时，工作流失败且不部署新目录。
 - 上传或 Pages 部署失败时，线上仍保留上一份可用目录。
 - 应用下载校验失败时保留上一可用宠物版本。
 
 ## 测试与验收
 
 - 测试证明 `online-pets` 不在 `public` 中，生产前端构建不会携带新增宠物。
-- 目录生成测试覆盖默认元数据、显式版本、SHA-256、大小、HTTPS Release URL 和重复 id/version。
+- Rust 测试覆盖在线 ZIP 的 v1/v2 自动识别、声明版本不匹配、可选素材许可和非法额外文件。
+- TypeScript 测试覆盖目录中 `spriteVersionNumber` 为 1 或 2，并继续拒绝其他值。
+- 目录生成测试覆盖 v1/v2 自动识别、默认元数据、显式版本、SHA-256、大小、HTTPS Release URL 和重复 id/version。
 - 工作流测试证明宠物发布任务不包含 Rust、Cargo、Tauri 或 Windows 安装包构建。
 - 完整 `pnpm verify` 通过。
-- 合并后在线 `catalog.json` 能列出 7 只新增宠物，v0.1.0 可刷新、下载、安装和切换其中一只。
+- v0.1.1 可从在线 `catalog.json` 刷新、下载、安装并切换一只 v1 和一只 v2 宠物。
+- v0.1.1 发布后，单独增加宠物只触发 `publish-pets.yml`，不触发应用构建或安装包发布。
 
 ## 不在本次范围
 
-- 不发布新的 DeskMate 安装包。
-- 不修改应用在线目录协议。
+- 除一次性的 v0.1.1 兼容更新外，不因宠物目录变化发布新的 DeskMate 安装包。
+- 不改变 `PetCatalogV1` 的字段集合，只把 `spriteVersionNumber` 的允许值从固定 `2` 放宽为 `1 | 2`。
 - 不增加第三方宠物源或账号系统。
 - 不自动授予宠物素材新的开源许可。

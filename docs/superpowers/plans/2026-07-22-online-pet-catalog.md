@@ -2,25 +2,131 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Publish official pets through GitHub Releases and GitHub Pages without putting them in the DeskMate installer or rebuilding the Windows application.
+**Goal:** Publish one v0.1.1 compatibility update for online Codex v1/v2 imports, then publish future official pets through GitHub without putting them in or rebuilding the Windows installer.
 
-**Architecture:** Pet sources live under `online-pets/<id>` outside Vite's `public` directory. A dependency-free Node builder validates and packages every source, generates the v1 catalog, and prepares a Pages artifact; a lightweight GitHub Actions workflow uploads ZIPs to the `pets-v1` Release and deploys Pages.
+**Architecture:** Rust package validation is aligned with the existing local v1/v2 detector, with `ASSET_LICENSE.txt` optional and the installed sprite version detected from the actual atlas. Pet sources then live under `online-pets/<id>` outside Vite's `public` directory; a dependency-free Node builder packages them and a lightweight GitHub Actions workflow uploads ZIPs to `pets-v1` and deploys Pages.
 
 **Tech Stack:** Node.js ESM, Node test runner, PowerShell/bsdtar-compatible ZIP creation, GitHub Actions, GitHub CLI, GitHub Releases, GitHub Pages.
 
 ## Global Constraints
 
 - The Windows installer keeps only `public/pets/yanghao` as the offline fallback.
-- Pet-only changes must not invoke Cargo, Rust, Tauri, NSIS, or a Windows application build.
-- The released v0.1.0 catalog protocol and GitHub Release URL allowlist remain unchanged.
+- After the one-time v0.1.1 compatibility release, pet-only changes must not invoke Cargo, Rust, Tauri, NSIS, or a Windows application build.
+- The catalog field set and GitHub Release URL allowlist remain unchanged; `spriteVersionNumber` accepts only `1 | 2`.
 - Each online pet requires only `pet.json` and `spritesheet.webp`; `ASSET_LICENSE.txt` is optional.
-- Online packages must be v2 atlases (`1536x2288`, `spriteVersionNumber: 2`).
+- Online packages may be v1 (`1536x1872`) or v2 (`1536x2288`); a declared manifest version must match the decoded atlas, and omission triggers detection.
 - Catalog packages use HTTPS URLs under `github.com/<owner>/<repo>/releases/download/pets-v1/`.
 - No new license is granted to pet artwork.
 
 ---
 
-### Task 1: Online Pet Builder and Source Migration
+### Task 1: Online Package v1/v2 Compatibility
+
+**Files:**
+- Modify: `src-tauri/src/pets.rs`
+- Modify: `src-tauri/src/lib.rs`
+- Modify: `src/domain/pets.ts`
+- Modify: `src/domain/pets.test.ts`
+
+**Interfaces:**
+- Consumes: online ZIPs containing required `pet.json`, required `spritesheet.webp`, and optional `ASSET_LICENSE.txt`.
+- Produces: package validation that detects sprite version `1 | 2`, catalog validation accepting `1 | 2`, and installed-pet resolution that reports the detected version offline.
+
+- [ ] **Step 1: Write failing Rust package tests**
+
+Add tests in `src-tauri/src/pets.rs` proving that a ZIP with a v1 atlas and no `ASSET_LICENSE.txt` validates, a v2 ZIP with the optional license validates, a declared version that conflicts with the atlas fails, and an unexpected file still fails. Use the existing `write_v1_spritesheet` and `write_v2_spritesheet` helpers.
+
+```rust
+#[test]
+fn package_accepts_detected_v1_without_asset_license() {
+    // Build pet.json without spriteVersionNumber and a 1536x1872 spritesheet.
+    // Assert validate_package(...) == Ok(()).
+}
+
+#[test]
+fn package_rejects_declared_version_mismatch() {
+    // Declare spriteVersionNumber 2 with a 1536x1872 spritesheet.
+    // Assert InvalidSpritesheet.
+}
+```
+
+- [ ] **Step 2: Run Rust tests and verify RED**
+
+Run: `cargo test --manifest-path src-tauri/Cargo.toml pets::tests`
+
+Expected: FAIL because package validation requires all three files, the manifest requires version 2, and the package validator only accepts v2.
+
+- [ ] **Step 3: Write failing frontend catalog tests**
+
+In `src/domain/pets.test.ts`, add one catalog with `spriteVersionNumber: 1` and assert it validates, then add an entry with `3` and assert rejection.
+
+- [ ] **Step 4: Run frontend tests and verify RED**
+
+Run: `pnpm test -- src/domain/pets.test.ts`
+
+Expected: the v1 catalog test fails with `spriteVersionNumber must be 2`.
+
+- [ ] **Step 5: Implement minimal Rust compatibility**
+
+In `src-tauri/src/pets.rs`:
+
+```rust
+pub const ALLOWED_FILES: [&str; 3] = ["pet.json", "spritesheet.webp", "ASSET_LICENSE.txt"];
+const REQUIRED_PACKAGE_FILES: [&str; 2] = ["pet.json", "spritesheet.webp"];
+
+pub struct PetManifestV2 {
+    // existing id/display_name/description fields
+    #[serde(default)]
+    pub sprite_version_number: Option<u8>,
+    // existing spritesheet_path field
+}
+```
+
+- Require only `REQUIRED_PACKAGE_FILES` in `validate_package`; continue rejecting paths not in `ALLOWED_FILES`.
+- Parse the manifest first and pass its optional declared version to `validate_local_spritesheet`, which detects and fully validates v1/v2.
+- In `extract_validated_package`, always copy required files and copy `ASSET_LICENSE.txt` only when present.
+- Expose a focused directory loader that reuses `validate_local_pet_directory` and returns the detected version for an exact installed directory.
+- In `validate_catalog`, accept only `sprite_version_number == 1 || sprite_version_number == 2`.
+
+In `src-tauri/src/lib.rs`, replace the official-pet hardcoded sprite version `2` in `resolve_pet_payload` with the detected version returned by that exact installed-directory loader.
+
+- [ ] **Step 6: Implement minimal TypeScript compatibility**
+
+Change only the catalog entry contract and validator:
+
+```ts
+export interface PetCatalogEntryV1 {
+  // existing fields
+  spriteVersionNumber: 1 | 2;
+}
+
+if (value.spriteVersionNumber !== 1 && value.spriteVersionNumber !== 2) {
+  throw new Error("spriteVersionNumber must be 1 or 2");
+}
+```
+
+Keep the built-in `PetManifestV2` contract unchanged because it describes the packaged Yanghao fallback, not downloaded ZIP parsing.
+
+- [ ] **Step 7: Run focused tests and verify GREEN**
+
+Run: `cargo test --manifest-path src-tauri/Cargo.toml pets::tests`
+
+Expected: all pet package tests pass.
+
+Run: `pnpm test -- src/domain/pets.test.ts`
+
+Expected: all pet domain tests pass.
+
+- [ ] **Step 8: Commit compatibility**
+
+```powershell
+git add -- src-tauri/src/pets.rs src-tauri/src/lib.rs src/domain/pets.ts src/domain/pets.test.ts
+git commit -m "Support v1 pets in the online catalog"
+```
+
+---
+
+### Task 2: Online Pet Builder and Source Migration
 
 **Files:**
 
@@ -105,7 +211,7 @@ Expected: the online-pet test fails because `scripts/build-online-pets.mjs` and 
 
 - [ ] **Step 3: Move the seven sources outside `public`**
 
-Use `git mv` for the seven tracked directories from `public/pets/<id>` to `online-pets/<id>`. Add `"spriteVersionNumber": 2` to `blue-guga/pet.json` and `ikkun/pet.json`; preserve all other user content.
+Use `git mv` for the seven tracked directories from `public/pets/<id>` to `online-pets/<id>`. Preserve the v1 manifests for `blue-guga` and `ikkun`; do not add a false v2 declaration.
 
 - [ ] **Step 4: Implement the minimal builder**
 
@@ -171,7 +277,6 @@ export async function buildOnlinePets(options) {
       typeof manifest.description === "string" && manifest.description.trim(),
       `${directory.name} description is required`,
     );
-    assert(manifest.spriteVersionNumber === 2, `${directory.name} spriteVersionNumber must be 2`);
     assert(manifest.spritesheetPath === "spritesheet.webp", `${directory.name} spritesheetPath is invalid`);
     const version = manifest.version ?? "1.0.0";
     assert(/^\d+\.\d+\.\d+$/.test(version), `${directory.name} version must be semver`);
@@ -181,7 +286,18 @@ export async function buildOnlinePets(options) {
 
     const spritesheet = await readFile(join(sourceDirectory, "spritesheet.webp"));
     const dimensions = readWebpDimensions(spritesheet);
-    assert(dimensions.width === 1536 && dimensions.height === 2288, `${directory.name} must be 1536x2288`);
+    const detectedSpriteVersion =
+      dimensions.width === 1536 && dimensions.height === 1872
+        ? 1
+        : dimensions.width === 1536 && dimensions.height === 2288
+          ? 2
+          : 0;
+    assert(detectedSpriteVersion !== 0, `${directory.name} must be a Codex v1 or v2 atlas`);
+    assert(
+      manifest.spriteVersionNumber === undefined ||
+        manifest.spriteVersionNumber === detectedSpriteVersion,
+      `${directory.name} declared sprite version does not match the atlas`,
+    );
 
     const stagingDirectory = join(options.output, "staging", directory.name);
     await mkdir(stagingDirectory, { recursive: true });
@@ -204,7 +320,7 @@ export async function buildOnlinePets(options) {
       description: manifest.description,
       author: manifest.author ?? "DeskMate contributors",
       assetLicense: manifest.assetLicense ?? "All rights reserved by the respective asset owner",
-      spriteVersionNumber: 2,
+      spriteVersionNumber: detectedSpriteVersion,
       minAppVersion: manifest.minAppVersion ?? "0.1.0",
       previewUrl: `https://${owner}.github.io/${repo}/pet-placeholder.svg`,
       packageUrl: `https://github.com/${options.repository}/releases/download/${options.releaseTag}/${encodeURIComponent(zipName)}`,
@@ -280,7 +396,7 @@ const entry = {
   description: manifest.description,
   author: manifest.author ?? "DeskMate contributors",
   assetLicense: manifest.assetLicense ?? "All rights reserved by the respective asset owner",
-  spriteVersionNumber: 2,
+  spriteVersionNumber: detectedSpriteVersion,
   minAppVersion: manifest.minAppVersion ?? "0.1.0",
   previewUrl: `https://${owner}.github.io/${repo}/pet-placeholder.svg`,
   packageUrl: `https://github.com/${repository}/releases/download/${releaseTag}/${encodeURIComponent(zipName)}`,
@@ -306,7 +422,7 @@ git commit -m "Build official pets outside the installer"
 
 ---
 
-### Task 2: Lightweight Pet Publishing Workflow
+### Task 3: Lightweight Pet Publishing Workflow
 
 **Files:**
 
@@ -315,7 +431,7 @@ git commit -m "Build official pets outside the installer"
 
 **Interfaces:**
 
-- Consumes: Task 1 CLI and generated `online-pets-dist/packages`, `online-pets-dist/pages`.
+- Consumes: Task 2 CLI and generated `online-pets-dist/packages`, `online-pets-dist/pages`.
 - Produces: GitHub Release tag `pets-v1` assets and the deployed Pages catalog.
 
 - [ ] **Step 1: Write the failing workflow contract test**
@@ -416,35 +532,54 @@ git commit -m "Publish online pets without app builds"
 
 ---
 
-### Task 3: Documentation, Regression Verification, and PR Update
+### Task 4: Version, Documentation, Regression Verification, and PR Update
 
 **Files:**
 
+- Modify: `package.json`
+- Modify: `src-tauri/Cargo.toml`
+- Modify: `src-tauri/tauri.conf.json`
+- Modify: `src/components/SettingsApp.tsx`
 - Modify: `README.md`
-- Verify: all files changed by Tasks 1-2
+- Verify: all files changed by Tasks 1-3
 
 **Interfaces:**
 
-- Consumes: the builder and workflow from Tasks 1-2.
-- Produces: a contributor-facing two-file pet publishing workflow and a verified PR.
+- Consumes: the compatibility update, builder, and workflow from Tasks 1-3.
+- Produces: DeskMate v0.1.1 metadata, contributor-facing publishing documentation, and a verified PR.
 
-- [ ] **Step 1: Document the two-file workflow**
+- [ ] **Step 1: Bump the one-time compatibility release to v0.1.1**
+
+Change every application version surface from `0.1.0` to `0.1.1`:
+
+- root `package.json`
+- `src-tauri/Cargo.toml` (and the DeskMate package entry in `Cargo.lock` if Cargo refreshes it)
+- `src-tauri/tauri.conf.json`
+- both visible version labels in `src/components/SettingsApp.tsx`
+
+Do not create or push the `v0.1.1` tag yet; the tag is created only after the PR is merged and CI is green.
+
+- [ ] **Step 2: Document the two-file workflow and compatibility boundary**
 
 Add a short `在线官方宠物` section to `README.md`:
 
 ```markdown
 ### 在线官方宠物
 
-官方宠物源文件放在 `online-pets/<pet-id>/`，每只宠物只需要 `pet.json` 和 `spritesheet.webp`。合并到 `main` 后，轻量 GitHub Actions 会自动生成 ZIP、上传宠物资源 Release 并刷新 Pages 目录；该流程不会重新构建 Windows 安装包。
+官方宠物源文件放在 `online-pets/<pet-id>/`，每只宠物只需要 `pet.json` 和 `spritesheet.webp`，也可附带 `ASSET_LICENSE.txt`。DeskMate v0.1.1 起，在线官方宠物与本地导入一样兼容 Codex v1/v2 图集。合并到 `main` 后，轻量 GitHub Actions 会自动生成 ZIP、上传宠物资源 Release 并刷新 Pages 目录；v0.1.1 发布后，单独增加或更新宠物不会重新构建 Windows 安装包。
 
 更新已有宠物时，在 `pet.json` 中提高 `version` 后再提交。宠物素材不自动适用本仓库的 MIT 代码许可，发布者必须确认自己拥有分发权限。
 ```
 
-- [ ] **Step 2: Run fresh complete verification**
+- [ ] **Step 3: Run fresh complete verification**
 
 Run: `pnpm verify`
 
-Expected: formatting, TypeScript, 52 application tests, workflow/online-pet tests, bundled Yanghao validation, pet sync and Vite production build all pass.
+Expected: formatting, TypeScript, application tests, Rust compatibility tests, workflow/online-pet tests, bundled Yanghao validation, pet sync and Vite production build all pass.
+
+Run: `cargo test --manifest-path src-tauri/Cargo.toml`
+
+Expected: all Rust tests pass, including the online v1/v2 package tests.
 
 Run: `git diff --check`
 
@@ -454,22 +589,22 @@ Run: `git status -sb`
 
 Expected: only intended tracked changes plus the user's pre-existing unrelated untracked files; no added official pet remains under `public/pets`.
 
-- [ ] **Step 3: Commit documentation**
+- [ ] **Step 4: Commit version and documentation**
 
 ```powershell
-git add -- README.md
-git commit -m "Document online pet publishing"
+git add -- package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json src/components/SettingsApp.tsx README.md
+git commit -m "Prepare DeskMate v0.1.1 compatibility release"
 ```
 
-- [ ] **Step 4: Push and update PR #3**
+- [ ] **Step 5: Push and update PR #3**
 
 ```powershell
 git push
-gh pr edit 3 --title "Publish official pets from the online catalog" --body "Moves seven official pets outside Vite public assets and adds a lightweight Release/Pages publishing workflow. Pet-only updates no longer require a DeskMate installer build."
+gh pr edit 3 --title "Publish official pets from the online catalog" --body "Prepares the one-time DeskMate v0.1.1 compatibility update, moves seven official pets outside Vite public assets, and adds a lightweight Release/Pages publishing workflow. Online packages support Codex v1/v2; after v0.1.1, pet-only updates no longer require a DeskMate installer build."
 ```
 
-- [ ] **Step 5: Verify GitHub checks**
+- [ ] **Step 6: Verify GitHub checks**
 
 Run: `gh pr checks 3 --watch`
 
-Expected: required CI checks pass. Do not create an application Release from this PR.
+Expected: required CI checks pass. After merge, create the signed `v0.1.1` application Release once; future pet-only changes use `pets-v1` and do not create application releases.
