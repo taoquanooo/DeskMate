@@ -229,12 +229,13 @@ async fn pet_current(app: tauri::AppHandle) -> PetChangedPayload {
         let Some(state) = app.try_state::<AppState>() else {
             return fallback;
         };
-        state
+        let selected = state
             .settings
             .lock()
             .expect("settings poisoned")
             .selected_pet
-            .clone()
+            .clone();
+        selected
     };
     let fallback_for_task = fallback.clone();
     match tauri::async_runtime::spawn_blocking(move || {
