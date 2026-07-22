@@ -47,8 +47,9 @@
 **Interfaces:**
 
 - Consumes: `previous: Option<Point>`, `current: Point`, and a physical-pixel threshold.
-- Produces: `drag_direction(previous, current, threshold) -> Option<DragDirection>` and the existing `runtime://animation` event with `running-left`, `running-right`, or `idle`.
+- Produces: `drag_direction(previous, current, threshold) -> Option<DragDirection>` and `runtime://drag-animation` with `running-left` or `running-right` without changing the backend's resumable animation state.
 - Produces: `runtime://drag-moved` once native movement exceeds the threshold during a drag.
+- Produces: `runtime://drag-ended` when the native drag ends so the frontend can restore the animation that was active before dragging.
 
 - [ ] **Step 1: Write failing pure Rust tests**
 
@@ -113,7 +114,7 @@ pub fn drag_direction(
 
 - [ ] **Step 4: Make the runtime sample native window movement**
 
-In `start_motion_engine`, retain `last_drag_position`, `drag_direction`, `drag_moved`, and `was_dragging`. While dragging and roaming is disabled, call `window.outer_position()`, classify horizontal movement, emit a direction only when it changes, and emit `runtime://drag-moved` only once. On mouse release, clear the caches and emit idle:
+In `start_motion_engine`, retain `last_drag_position`, `drag_direction`, `drag_moved`, and `was_dragging`. While dragging and roaming is disabled, call `window.outer_position()`, classify horizontal movement, emit a direction only when it changes, and emit `runtime://drag-moved` only once. On mouse release, clear the caches and emit `runtime://drag-ended` without replacing the resumable animation:
 
 ```rust
 if dragging {
@@ -129,7 +130,7 @@ if dragging {
                 }
                 if drag_animation != Some(direction) {
                     drag_animation = Some(direction);
-                    let _ = app.emit("runtime://animation", AnimationPayload {
+                    let _ = app.emit("runtime://drag-animation", AnimationPayload {
                         state: match direction {
                             DragDirection::Left => "running-left",
                             DragDirection::Right => "running-right",
@@ -149,10 +150,7 @@ if was_dragging {
     last_drag_position = None;
     drag_animation = None;
     drag_moved = false;
-    let _ = app.emit("runtime://animation", AnimationPayload {
-        state: "idle",
-        direction_degrees: None,
-    });
+    let _ = app.emit("runtime://drag-ended", ());
 }
 ```
 
@@ -185,7 +183,7 @@ git commit -m "Animate native pet dragging direction"
 
 **Interfaces:**
 
-- Consumes: `runtime://drag-moved` and existing `runtime://animation` events.
+- Consumes: `runtime://drag-animation`, `runtime://drag-moved`, `runtime://drag-ended`, and existing `runtime://animation` events.
 - Produces: single click `jumping`, double click `waving`, and right click one of `waving | waiting | review`.
 
 - [ ] **Step 1: Write failing interaction tests**
@@ -223,7 +221,9 @@ In `PetWindow.tsx`:
 
 - Change the delayed single-click interaction to `jumping` for 1000ms.
 - Change double-click to `waving` for 900ms.
-- Listen for `runtime://drag-moved`; clear `singleClickTimer`, set a `dragMoved` ref, and let running animation events display normally.
+- Listen for `runtime://drag-animation`; display its direction without updating `resumeAnimation`.
+- Listen for `runtime://drag-moved`; clear `singleClickTimer` and set a `dragMoved` ref.
+- Listen for `runtime://drag-ended`; restore `resumeAnimation` with a fresh `startedAt` timestamp.
 - Reset `dragMoved` on left pointer down; make `handleClick` consume and clear the flag without scheduling an action.
 - Handle `onContextMenu`, call `preventDefault`, choose from the fixed list with `Math.floor(Math.random() * actions.length)`, and play durations matching the atlas rows.
 
