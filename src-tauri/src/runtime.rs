@@ -1,5 +1,5 @@
 use crate::{
-    motion::{clamp_to_work_area, drag_direction, step_toward, DragDirection, Point, WorkArea},
+    motion::{clamp_to_work_area, step_toward, DragDirection, DragTracker, Point, WorkArea},
     AppState,
 };
 use rand::Rng;
@@ -23,7 +23,7 @@ pub fn start_motion_engine(app: tauri::AppHandle) {
         let mut target: Option<Point> = None;
         let mut idle_until: Option<Instant> = None;
         let mut last_fullscreen = false;
-        let mut last_drag_position = None;
+        let mut drag_tracker = DragTracker::default();
         let mut drag_animation = None;
         let mut drag_moved = false;
         let mut was_dragging = false;
@@ -62,32 +62,40 @@ pub fn start_motion_engine(app: tauri::AppHandle) {
             if dragging {
                 state.moving.store(false, Ordering::Relaxed);
                 target = None;
-                if !settings.pet.roaming_enabled {
-                    if let Ok(position) = window.outer_position() {
-                        let current = Point {
-                            x: position.x as f64,
-                            y: position.y as f64,
-                        };
-                        if let Some(direction) = drag_direction(last_drag_position, current, 2.0) {
-                            if !drag_moved {
-                                drag_moved = true;
-                                let _ = app.emit("runtime://drag-moved", ());
-                            }
-                            if drag_animation != Some(direction) {
-                                drag_animation = Some(direction);
-                                let _ = app.emit(
-                                    "runtime://drag-animation",
-                                    AnimationPayload {
-                                        state: match direction {
-                                            DragDirection::Left => "running-left",
-                                            DragDirection::Right => "running-right",
-                                        },
-                                        direction_degrees: None,
+                if let Ok(position) = window.outer_position() {
+                    let current = Point {
+                        x: position.x as f64,
+                        y: position.y as f64,
+                    };
+                    let observation =
+                        drag_tracker.observe(current, 2.0, !settings.pet.roaming_enabled);
+                    if observation.moved && !drag_moved {
+                        drag_moved = true;
+                        let _ = app.emit("runtime://drag-moved", ());
+                    }
+                    if observation.start_visual {
+                        let _ = app.emit(
+                            "runtime://drag-animation",
+                            AnimationPayload {
+                                state: "idle",
+                                direction_degrees: None,
+                            },
+                        );
+                    }
+                    if let Some(direction) = observation.direction {
+                        if drag_animation != Some(direction) {
+                            drag_animation = Some(direction);
+                            let _ = app.emit(
+                                "runtime://drag-animation",
+                                AnimationPayload {
+                                    state: match direction {
+                                        DragDirection::Left => "running-left",
+                                        DragDirection::Right => "running-right",
                                     },
-                                );
-                            }
+                                    direction_degrees: None,
+                                },
+                            );
                         }
-                        last_drag_position = Some(current);
                     }
                 }
                 was_dragging = true;
@@ -95,7 +103,7 @@ pub fn start_motion_engine(app: tauri::AppHandle) {
             }
             if was_dragging {
                 was_dragging = false;
-                last_drag_position = None;
+                drag_tracker = DragTracker::default();
                 drag_animation = None;
                 drag_moved = false;
                 let _ = app.emit("runtime://drag-ended", ());

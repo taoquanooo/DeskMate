@@ -25,6 +25,64 @@ pub fn drag_direction(
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DragObservation {
+    pub moved: bool,
+    pub start_visual: bool,
+    pub direction: Option<DragDirection>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DragTracker {
+    movement_origin: Option<Point>,
+    direction_origin: Option<Point>,
+    movement_reported: bool,
+    visual_started: bool,
+}
+
+impl DragTracker {
+    pub fn observe(
+        &mut self,
+        current: Point,
+        threshold: f64,
+        animate_direction: bool,
+    ) -> DragObservation {
+        let Some(movement_origin) = self.movement_origin else {
+            self.movement_origin = Some(current);
+            self.direction_origin = Some(current);
+            let start_visual = animate_direction;
+            self.visual_started = start_visual;
+            return DragObservation {
+                start_visual,
+                ..DragObservation::default()
+            };
+        };
+
+        let moved = !self.movement_reported
+            && (current.x - movement_origin.x).hypot(current.y - movement_origin.y) > threshold;
+        if moved {
+            self.movement_reported = true;
+        }
+
+        let start_visual = animate_direction && !self.visual_started;
+        if start_visual {
+            self.visual_started = true;
+        }
+        let direction = animate_direction
+            .then(|| drag_direction(self.direction_origin, current, threshold))
+            .flatten();
+        if direction.is_some() {
+            self.direction_origin = Some(current);
+        }
+
+        DragObservation {
+            moved,
+            start_visual,
+            direction,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WorkArea {
     pub left: i32,
@@ -80,7 +138,7 @@ pub fn step_toward(from: Point, to: Point, pixels: f64) -> Point {
 mod tests {
     use super::{
         clamp_to_work_area, drag_direction, resize_around_bottom_center, step_toward,
-        DragDirection, Point, WorkArea,
+        DragDirection, DragTracker, Point, WorkArea,
     };
 
     #[test]
@@ -96,6 +154,48 @@ mod tests {
         );
         assert_eq!(drag_direction(from, Point { x: 101.0, y: 90.0 }, 2.0), None);
         assert_eq!(drag_direction(None, Point { x: 104.0, y: 90.0 }, 2.0), None);
+    }
+
+    #[test]
+    fn recognizes_vertical_drag_movement_from_the_drag_origin() {
+        let mut tracker = DragTracker::default();
+        let initial = tracker.observe(Point { x: 10.0, y: 10.0 }, 2.0, true);
+        assert!(!initial.moved);
+        assert!(initial.start_visual);
+
+        let observation = tracker.observe(Point { x: 10.0, y: 13.0 }, 2.0, true);
+
+        assert!(observation.moved);
+        assert_eq!(observation.direction, None);
+    }
+
+    #[test]
+    fn accumulates_small_samples_without_moving_the_drag_origin() {
+        let mut tracker = DragTracker::default();
+        assert!(!tracker.observe(Point { x: 10.0, y: 10.0 }, 2.0, true).moved);
+        assert!(
+            !tracker
+                .observe(Point { x: 11.25, y: 10.0 }, 2.0, true)
+                .moved
+        );
+
+        let observation = tracker.observe(Point { x: 12.5, y: 10.0 }, 2.0, true);
+
+        assert!(observation.moved);
+        assert_eq!(observation.direction, Some(DragDirection::Right));
+    }
+
+    #[test]
+    fn recognizes_roaming_enabled_drag_without_requesting_direction_animation() {
+        let mut tracker = DragTracker::default();
+        let initial = tracker.observe(Point { x: 10.0, y: 10.0 }, 2.0, false);
+
+        let observation = tracker.observe(Point { x: 14.0, y: 10.0 }, 2.0, false);
+
+        assert!(!initial.start_visual);
+        assert!(observation.moved);
+        assert!(!observation.start_visual);
+        assert_eq!(observation.direction, None);
     }
 
     #[test]

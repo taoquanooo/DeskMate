@@ -54,6 +54,23 @@ test("the Tauri dependency enables the asset protocol used by the app config", a
   );
 });
 
+test("the Tauri CSP allows HTTPS catalog preview images", async () => {
+  const config = JSON.parse(await readFile(tauriConfigUrl, "utf8"));
+  const csp = config.app.security.csp;
+
+  assert.match(csp, /(?:^|;)\s*img-src\s+[^;]*\bhttps:/);
+});
+
+test("custom-pet files require runtime validation before asset authorization", async () => {
+  const config = JSON.parse(await readFile(tauriConfigUrl, "utf8"));
+  const scope = config.app.security.assetProtocol.scope;
+
+  assert.equal(
+    scope.some((entry) => entry.includes("custom-pets")),
+    false,
+  );
+});
+
 test("Windows checkouts keep text files in Prettier's LF format", async () => {
   const attributes = await readFile(gitAttributesUrl, "utf8");
 
