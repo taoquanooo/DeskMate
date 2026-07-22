@@ -48,7 +48,9 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: DeskMate ${{ github.ref_name }}
-          releaseBody: Windows 10/11 x64 per-user NSIS installer. This preview release is not commercially code-signed.
+          releaseBody: |
+            DeskMate 首次公开版本，提供 Windows 10/11 x64 按用户安装的 NSIS 安装包。
+            安装包暂未进行商业 Windows 代码签名，但应用内更新产物使用 Tauri 项目密钥签名。
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           generateReleaseNotes: true
