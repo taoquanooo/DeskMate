@@ -13,6 +13,7 @@ import {
   listenEvent,
   petRecall,
   petCatalogRefresh,
+  petCurrent,
   petInstall,
   openPetGalleryUrl,
   petLocalFolderOpen,
@@ -25,6 +26,7 @@ import {
   updaterCheck,
   updaterInstall,
   type BubblePayload,
+  type PetChangedPayload,
   type UpdateStatus,
 } from "./lib/tauri";
 
@@ -49,6 +51,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
     errors: [],
   });
   const [updateUi, setUpdateUi] = useState<UpdateUi>({ state: "idle" });
+  const [currentPet, setCurrentPet] = useState<PetChangedPayload | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -101,6 +104,25 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
       cancelled = true;
       disposedReady?.();
       disposedError?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    let disposeChanged: (() => void) | undefined;
+    void petCurrent().then(
+      (pet) => active && setCurrentPet(pet),
+      () => undefined,
+    );
+    void listenEvent<PetChangedPayload>("pet://changed", (pet) => {
+      if (active) setCurrentPet(pet);
+    }).then((dispose) => {
+      if (active) disposeChanged = dispose;
+      else dispose();
+    });
+    return () => {
+      active = false;
+      disposeChanged?.();
     };
   }, []);
 
@@ -178,6 +200,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
   return (
     <SettingsApp
       initialSettings={settings}
+      currentPet={currentPet}
       onSettingsChange={(next) => {
         setSettings(next);
         void settingsPatch(next).then(

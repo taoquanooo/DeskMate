@@ -17,7 +17,8 @@ import {
 import type { Reminder, ReminderSchedule } from "../domain/reminders";
 import type { LocalPetV1, PetCatalogV1 } from "../domain/pets";
 import type { SettingsV1 } from "../domain/settings";
-import { PROJECT_URL, PET_GALLERY_URL } from "../lib/tauri";
+import { PROJECT_URL, PET_GALLERY_URL, type PetChangedPayload } from "../lib/tauri";
+import { PetPreview } from "./PetPreview";
 import { PetSizeSetting } from "./PetSizeSetting";
 import { PetSprite } from "./PetSprite";
 
@@ -52,6 +53,7 @@ export interface SettingsAppProps {
   onOpenPetGallery?: () => void;
   onOpenProject?: () => void;
   onShareProject?: () => Promise<"shared" | "copied" | "cancelled">;
+  currentPet?: PetChangedPayload | null;
 }
 
 const NAV: Array<{ id: Section; label: string; icon: typeof PawPrint }> = [
@@ -83,6 +85,7 @@ export function SettingsApp({
   onOpenPetGallery,
   onOpenProject,
   onShareProject,
+  currentPet,
 }: SettingsAppProps) {
   const [settings, setSettings] = useState(initialSettings);
   const [section, setSection] = useState<Section>("pet");
@@ -135,7 +138,16 @@ export function SettingsApp({
         </div>
       </aside>
       <section className="settings-main">
-        {section === "pet" && <PetSettings settings={settings} patchPet={patchPet} onRecall={onRecall} />}
+        {section === "pet" && (
+          <PetSettings
+            settings={settings}
+            patchPet={patchPet}
+            onRecall={onRecall}
+            currentPet={currentPet}
+            localPets={localPets}
+            catalog={catalog}
+          />
+        )}
         {section === "reminders" && (
           <ReminderSettings
             settings={settings}
@@ -192,11 +204,31 @@ function PetSettings({
   settings,
   patchPet,
   onRecall,
+  currentPet,
+  localPets,
+  catalog,
 }: {
   settings: SettingsV1;
   patchPet: (patch: Partial<SettingsV1["pet"]>) => void;
   onRecall?: () => void;
+  currentPet?: PetChangedPayload | null;
+  localPets: LocalPetV1[];
+  catalog?: PetCatalogV1 | null;
 }) {
+  const previewPet: PetChangedPayload = currentPet ?? {
+    id: settings.selectedPet.id,
+    version: settings.selectedPet.version,
+    spriteVersionNumber: 2,
+    spritesheetPath: null,
+  };
+  const previewName =
+    previewPet.id === "yanghao"
+      ? "杨皓"
+      : (localPets.find((pet) => pet.id === previewPet.id)?.displayName ??
+        catalog?.pets.find((pet) => pet.id === previewPet.id && pet.version === previewPet.version)
+          ?.displayName ??
+        previewPet.id);
+
   return (
     <>
       <PageHeader title="桌宠设置" subtitle="自定义你的桌面伙伴，让陪伴更合你心意。" />
@@ -204,18 +236,9 @@ function PetSettings({
         <section className="pet-preview" aria-label="桌宠预览">
           <div className="preview-bubble">
             <strong>今天也一起加油吧！</strong>
-            <span>点我会和你打招呼</span>
+            <span>正在展示当前桌宠的动画</span>
           </div>
-          <div className="sprite-stage">
-            <PetSprite state="idle" elapsedMs={380} scale={settings.pet.scale} />
-          </div>
-          <div className="pet-identity">
-            <strong>杨皓 · v1.0.0</strong>
-            <span>
-              <i className="status-dot" />
-              已是最新版本
-            </span>
-          </div>
+          <PetPreview pet={previewPet} displayName={previewName} />
           <button className="button button-secondary" onClick={onRecall}>
             <RotateCcw size={16} />
             召回当前屏幕

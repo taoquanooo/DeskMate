@@ -7,6 +7,7 @@ const previewConfigUrl = new URL("../src-tauri/tauri.preview.conf.json", import.
 const tauriConfigUrl = new URL("../src-tauri/tauri.conf.json", import.meta.url);
 const cargoManifestUrl = new URL("../src-tauri/Cargo.toml", import.meta.url);
 const gitAttributesUrl = new URL("../.gitattributes", import.meta.url);
+const stylesUrl = new URL("../src/styles.css", import.meta.url);
 
 test("the cloud preview workflow verifies and uploads an unsigned NSIS installer", async () => {
   const workflow = await readFile(workflowUrl, "utf8");
@@ -57,4 +58,15 @@ test("Windows checkouts keep text files in Prettier's LF format", async () => {
   const attributes = await readFile(gitAttributesUrl, "utf8");
 
   assert.match(attributes, /^\* text=auto eol=lf$/m);
+});
+
+test("the pet webview fills the resized native window", async () => {
+  const styles = await readFile(stylesUrl, "utf8");
+  const rule = styles.match(/\.pet-window\s*\{([^}]*)\}/)?.[1] ?? "";
+
+  assert.match(rule, /width:\s*100%/);
+  assert.match(rule, /height:\s*100%/);
+  assert.match(rule, /display:\s*grid/);
+  assert.match(rule, /place-items:\s*end center/);
+  assert.doesNotMatch(rule, /width:\s*192px/);
 });

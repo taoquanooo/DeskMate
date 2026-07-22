@@ -1,32 +1,48 @@
 import { DEFAULT_SETTINGS } from "./domain/settings";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PetChangedPayload } from "./lib/tauri";
 
-const settingsGetMock = vi.hoisted(() => vi.fn());
+const tauriMocks = vi.hoisted(() => ({
+  listenEvent: vi.fn(),
+  petCurrent: vi.fn(),
+  settingsGet: vi.fn(),
+}));
 
 vi.mock("./lib/tauri", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./lib/tauri")>()),
-  settingsGet: settingsGetMock,
+  listenEvent: tauriMocks.listenEvent,
+  petCurrent: tauriMocks.petCurrent,
+  settingsGet: tauriMocks.settingsGet,
 }));
 
 import { App, loadInitialSettings } from "./App";
 
 describe("DeskMate settings startup", () => {
   beforeEach(() => {
-    settingsGetMock.mockReset();
+    tauriMocks.settingsGet.mockReset();
+    tauriMocks.petCurrent.mockReset();
+    tauriMocks.listenEvent.mockReset();
+    tauriMocks.petCurrent.mockResolvedValue({
+      id: "yanghao",
+      version: "1.0.0",
+      spriteVersionNumber: 2,
+      spritesheetPath: null,
+    });
+    tauriMocks.listenEvent.mockResolvedValue(() => undefined);
   });
 
   it("recovers when the first settings request races native startup", async () => {
-    settingsGetMock
+    tauriMocks.settingsGet
       .mockRejectedValueOnce(new Error("state not ready"))
       .mockResolvedValueOnce(structuredClone(DEFAULT_SETTINGS));
 
     await expect(loadInitialSettings()).resolves.toEqual(DEFAULT_SETTINGS);
-    expect(settingsGetMock).toHaveBeenCalledTimes(2);
+    expect(tauriMocks.settingsGet).toHaveBeenCalledTimes(2);
   });
 
   it("shows a useful error instead of spinning forever", async () => {
-    settingsGetMock.mockRejectedValue(new Error("native settings unavailable"));
+    tauriMocks.settingsGet.mockRejectedValue(new Error("native settings unavailable"));
     window.history.replaceState({}, "", "/?view=settings");
 
     render(<App />);
@@ -36,7 +52,10 @@ describe("DeskMate settings startup", () => {
   });
 
   it("copies the GitHub link when native sharing is unavailable", async () => {
-    settingsGetMock.mockResolvedValue({ ...structuredClone(DEFAULT_SETTINGS), onboardingComplete: true });
+    tauriMocks.settingsGet.mockResolvedValue({
+      ...structuredClone(DEFAULT_SETTINGS),
+      onboardingComplete: true,
+    });
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -55,7 +74,10 @@ describe("DeskMate settings startup", () => {
   });
 
   it("falls back to a selection copy when clipboard permission is denied", async () => {
-    settingsGetMock.mockResolvedValue({ ...structuredClone(DEFAULT_SETTINGS), onboardingComplete: true });
+    tauriMocks.settingsGet.mockResolvedValue({
+      ...structuredClone(DEFAULT_SETTINGS),
+      onboardingComplete: true,
+    });
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText: vi.fn().mockRejectedValue(new Error("permission denied")) },
@@ -72,5 +94,37 @@ describe("DeskMate settings startup", () => {
 
     expect(await screen.findByRole("button", { name: "链接已复制" })).toBeInTheDocument();
     expect(execCommand).toHaveBeenCalledWith("copy");
+  });
+
+  it("updates the settings preview when the selected pet changes", async () => {
+    let changed: ((payload: PetChangedPayload) => void) | undefined;
+    tauriMocks.settingsGet.mockResolvedValue({
+      ...structuredClone(DEFAULT_SETTINGS),
+      onboardingComplete: true,
+    });
+    tauriMocks.petCurrent.mockResolvedValue({
+      id: "studio-cat",
+      version: "local",
+      spriteVersionNumber: 2,
+      spritesheetPath: "D:\\pets\\studio-cat\\spritesheet.webp",
+    });
+    tauriMocks.listenEvent.mockImplementation(async (event, handler) => {
+      if (event === "pet://changed") changed = handler;
+      return () => undefined;
+    });
+    window.history.replaceState({}, "", "/?view=settings");
+
+    render(<App />);
+
+    expect(await screen.findByText("studio-cat · local")).toBeInTheDocument();
+    act(() =>
+      changed?.({
+        id: "new-cat",
+        version: "local",
+        spriteVersionNumber: 1,
+        spritesheetPath: "D:\\pets\\new-cat\\spritesheet.webp",
+      }),
+    );
+    expect(await screen.findByText("new-cat · local")).toBeInTheDocument();
   });
 });

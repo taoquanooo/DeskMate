@@ -1,4 +1,5 @@
 mod motion;
+mod pet_asset_scope;
 mod pets;
 mod reminders;
 mod runtime;
@@ -463,10 +464,43 @@ fn apply_window_settings(app: &tauri::AppHandle, settings: &SettingsV1) {
     };
     let _ = pet.set_always_on_top(settings.pet.always_on_top);
     let _ = pet.set_ignore_cursor_events(settings.pet.click_through);
+    let reposition = pet
+        .outer_position()
+        .ok()
+        .zip(pet.outer_size().ok())
+        .zip(pet.current_monitor().ok().flatten())
+        .map(|((position, old_size), monitor)| {
+            let scale_factor = monitor.scale_factor();
+            let new_width = (192.0 * settings.pet.scale * scale_factor).round() as i32;
+            let new_height = (208.0 * settings.pet.scale * scale_factor).round() as i32;
+            let work_area = monitor.work_area();
+            motion::resize_around_bottom_center(
+                motion::Point {
+                    x: position.x as f64,
+                    y: position.y as f64,
+                },
+                old_size.width as i32,
+                old_size.height as i32,
+                new_width,
+                new_height,
+                motion::WorkArea {
+                    left: work_area.position.x,
+                    top: work_area.position.y,
+                    right: work_area.position.x + work_area.size.width as i32,
+                    bottom: work_area.position.y + work_area.size.height as i32,
+                },
+            )
+        });
     let _ = pet.set_size(tauri::LogicalSize::new(
         192.0 * settings.pet.scale,
         208.0 * settings.pet.scale,
     ));
+    if let Some(position) = reposition {
+        let _ = pet.set_position(tauri::PhysicalPosition::new(
+            position.x.round() as i32,
+            position.y.round() as i32,
+        ));
+    }
     let _ = app.emit("settings://scale", settings.pet.scale);
 }
 
@@ -812,6 +846,9 @@ fn resolve_pet_payload(
     if !spritesheet.is_file() {
         return Err("pet version is not installed".into());
     }
+    pet_asset_scope::authorize_selected_asset(&spritesheet, |path| {
+        app.asset_protocol_scope().allow_file(path)
+    })?;
     Ok(PetChangedPayload {
         id: id.into(),
         version: version.into(),

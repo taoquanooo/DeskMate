@@ -1,0 +1,72 @@
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PetChangedPayload } from "../lib/tauri";
+
+vi.mock("../lib/tauri", () => ({
+  petAssetUrl: (path?: string | null) => path ?? "/pets/yanghao/spritesheet.webp",
+}));
+
+import { PetPreview } from "./PetPreview";
+
+const customPet: PetChangedPayload = {
+  id: "studio-cat",
+  version: "local",
+  spriteVersionNumber: 2,
+  spritesheetPath: "D:\\pets\\studio-cat\\spritesheet.webp",
+};
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+describe("PetPreview", () => {
+  it("stays at 100% and cycles through its non-interactive showcase", () => {
+    vi.useFakeTimers();
+    render(
+      <PetPreview
+        pet={{ id: "yanghao", version: "1.0.0", spriteVersionNumber: 2, spritesheetPath: null }}
+        displayName="杨皓"
+      />,
+    );
+
+    expect(screen.getByRole("img")).toHaveStyle({ transform: "scale(1)" });
+    expect(screen.getByText("杨皓 · v1.0.0")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(3_200));
+    expect(screen.getByLabelText("桌宠正在挥手")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1_400));
+    expect(screen.getByLabelText("桌宠正在跳跃")).toBeInTheDocument();
+  });
+
+  it("keeps the last working image when the next pet image fails", async () => {
+    class PreviewImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(value: string) {
+        queueMicrotask(() => {
+          if (value.includes("broken")) this.onerror?.();
+          else this.onload?.();
+        });
+      }
+    }
+    vi.stubGlobal("Image", PreviewImage);
+    const { rerender } = render(<PetPreview pet={customPet} displayName="工作室小猫" />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("img")).toHaveStyle({
+        backgroundImage: "url(D:\\pets\\studio-cat\\spritesheet.webp)",
+      }),
+    );
+
+    rerender(
+      <PetPreview
+        pet={{ ...customPet, id: "broken", spritesheetPath: "D:\\pets\\broken\\spritesheet.webp" }}
+        displayName="损坏宠物"
+      />,
+    );
+    await act(async () => Promise.resolve());
+    expect(screen.getByRole("img")).toHaveStyle({
+      backgroundImage: "url(D:\\pets\\studio-cat\\spritesheet.webp)",
+    });
+  });
+});

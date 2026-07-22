@@ -22,6 +22,7 @@
 ### Task 1: Scale bounds and percentage editor
 
 **Files:**
+
 - Create: `src/components/PetSizeSetting.tsx`
 - Create: `src/components/PetSizeSetting.test.tsx`
 - Modify: `src/domain/settings.ts:45-55`
@@ -31,6 +32,7 @@
 - Modify: `src/styles.css:230-275`
 
 **Interfaces:**
+
 - Consumes: `scale: number` and `onChange(scale: number): void`.
 - Produces: `PetSizeSetting({ scale, onChange })`, emitting values in `0.25..=3.0`.
 
@@ -80,14 +82,32 @@ export function PetSizeSetting({ scale, onChange }: PetSizeSettingProps) {
   };
   return (
     <label className="setting-row pet-size-row">
-      <span><strong>大小</strong><small>{percentage}%</small></span>
+      <span>
+        <strong>大小</strong>
+        <small>{percentage}%</small>
+      </span>
       <span className="pet-size-controls">
-        <input aria-label="大小" type="range" min={25} max={300} step={5}
-          value={percentage} onChange={(event) => onChange(Number(event.target.value) / 100)} />
+        <input
+          aria-label="大小"
+          type="range"
+          min={25}
+          max={300}
+          step={5}
+          value={percentage}
+          onChange={(event) => onChange(Number(event.target.value) / 100)}
+        />
         <span className="percent-input">
-          <input aria-label="桌宠大小百分比" type="number" min={25} max={300} step={1}
-            value={draft} onChange={(event) => setDraft(event.target.value)}
-            onBlur={commit} onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()} />
+          <input
+            aria-label="桌宠大小百分比"
+            type="number"
+            min={25}
+            max={300}
+            step={1}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onBlur={commit}
+            onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
+          />
           <span>%</span>
         </span>
       </span>
@@ -114,12 +134,14 @@ git commit -m "Add direct desktop pet size controls"
 ### Task 2: Native window geometry and clipping fix
 
 **Files:**
+
 - Modify: `src-tauri/src/motion.rs`
 - Modify: `src-tauri/src/lib.rs:461-472`
 - Modify: `src/styles.css:678-701`
 - Modify: `src/components/PetWindow.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `Point`, `WorkArea`, old/new physical window sizes.
 - Produces: `resize_around_bottom_center(position, old_width, old_height, new_width, new_height, area) -> Point`.
 
@@ -214,6 +236,7 @@ git commit -m "Keep scaled desktop pet inside its window"
 ### Task 3: Current-pet animated preview
 
 **Files:**
+
 - Create: `src/components/PetPreview.tsx`
 - Create: `src/components/PetPreview.test.tsx`
 - Modify: `src/App.tsx`
@@ -222,6 +245,7 @@ git commit -m "Keep scaled desktop pet inside its window"
 - Modify: `src/styles.css`
 
 **Interfaces:**
+
 - Consumes: `PetChangedPayload`, optional display name, and existing `petAssetUrl`.
 - Produces: `PetPreview({ pet, displayName })`, fixed at scale 1 and cycling through idle/waving/jumping without interaction events.
 
@@ -246,7 +270,9 @@ Add this `App` integration test after extending the hoisted Tauri mocks with `pe
 it("updates the settings preview when the selected pet changes", async () => {
   let changed: ((payload: PetChangedPayload) => void) | undefined;
   tauriMocks.petCurrent.mockResolvedValue({
-    id: "studio-cat", version: "local", spriteVersionNumber: 2,
+    id: "studio-cat",
+    version: "local",
+    spriteVersionNumber: 2,
     spritesheetPath: "D:\\pets\\studio-cat\\spritesheet.webp",
   });
   tauriMocks.listenEvent.mockImplementation(async (event, handler) => {
@@ -256,10 +282,14 @@ it("updates the settings preview when the selected pet changes", async () => {
   settingsGetMock.mockResolvedValue({ ...structuredClone(DEFAULT_SETTINGS), onboardingComplete: true });
   render(<App />);
   expect(await screen.findByText("studio-cat · local")).toBeInTheDocument();
-  act(() => changed?.({
-    id: "new-cat", version: "local", spriteVersionNumber: 1,
-    spritesheetPath: "D:\\pets\\new-cat\\spritesheet.webp",
-  }));
+  act(() =>
+    changed?.({
+      id: "new-cat",
+      version: "local",
+      spriteVersionNumber: 1,
+      spritesheetPath: "D:\\pets\\new-cat\\spritesheet.webp",
+    }),
+  );
   expect(await screen.findByText("new-cat · local")).toBeInTheDocument();
 });
 ```
@@ -300,11 +330,13 @@ git commit -m "Animate the selected pet in settings preview"
 ### Task 4: Integrate pending asset fix and verify release path
 
 **Files:**
+
 - Modify: `src-tauri/src/lib.rs`
 - Create: `src-tauri/src/pet_asset_scope.rs`
 - Test: all project checks and GitHub Actions.
 
 **Interfaces:**
+
 - Consumes: validated selected spritesheet `Path`.
 - Produces: exact-file runtime authorization before `pet://changed` or `pet_current` returns the path.
 

@@ -21,6 +21,15 @@ describe("SettingsApp", () => {
     );
   });
 
+  it("keeps the preview at 100% while changing the desktop pet size", () => {
+    render(<SettingsApp initialSettings={DEFAULT_SETTINGS} />);
+    const preview = screen.getByRole("img");
+    expect(preview).toHaveStyle({ transform: "scale(1)" });
+
+    fireEvent.change(screen.getByRole("slider", { name: "大小" }), { target: { value: "300" } });
+    expect(preview).toHaveStyle({ transform: "scale(1)" });
+  });
+
   it("opens the reminder editor from the navigation", () => {
     render(<SettingsApp initialSettings={DEFAULT_SETTINGS} />);
     fireEvent.click(screen.getByRole("button", { name: "提醒" }));
