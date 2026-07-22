@@ -3,7 +3,8 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import "./styles.css";
 
-const view = new URLSearchParams(window.location.search).get("view") ?? "settings";
+const requested = new URLSearchParams(window.location.search).get("view") ?? "settings";
+const view = ["settings", "pet", "bubble", "onboarding"].includes(requested) ? requested : "settings";
 document.documentElement.classList.add(`view-${view}`);
 document.body.classList.add(`view-${view}`);
 

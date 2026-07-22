@@ -85,15 +85,23 @@ impl ReminderRuntime {
         }
     }
 
-    fn handle_action(&self, action: BubbleAction) {
+    fn handle_action(&self, action: BubbleAction, snooze_minutes: u8) {
         let now = epoch_millis();
-        self.mark_triggered(&action.reminder_ids, now);
-        let mut snoozed = self.snoozed_until.lock().expect("reminder state poisoned");
-        for id in action.reminder_ids {
-            if action.action == "snooze" {
-                snoozed.insert(id, now + 5 * 60_000);
-            } else {
-                snoozed.remove(&id);
+        if action.action == "snooze" {
+            // The reminder was already marked triggered when the bubble was shown.
+            // Only advance the suppression window so it re-fires after the snooze;
+            // resetting last_triggered here would defer it a full interval and make
+            // snooze behave exactly like dismiss.
+            let until = now + i64::from(snooze_minutes) * 60_000;
+            let mut snoozed = self.snoozed_until.lock().expect("reminder state poisoned");
+            for id in &action.reminder_ids {
+                snoozed.insert(id.clone(), until);
+            }
+        } else {
+            self.mark_triggered(&action.reminder_ids, now);
+            let mut snoozed = self.snoozed_until.lock().expect("reminder state poisoned");
+            for id in &action.reminder_ids {
+                snoozed.remove(id);
             }
         }
     }
@@ -104,7 +112,20 @@ pub fn start(app: tauri::AppHandle, runtime: std::sync::Arc<ReminderRuntime>) {
     let listener_runtime = runtime.clone();
     app.listen("bubble://action", move |event| {
         if let Ok(action) = serde_json::from_str::<BubbleAction>(event.payload()) {
-            listener_runtime.handle_action(action);
+            let snooze_minutes = listener_app
+                .state::<AppState>()
+                .settings
+                .lock()
+                .ok()
+                .and_then(|settings| {
+                    settings
+                        .reminders
+                        .iter()
+                        .find(|item| action.reminder_ids.contains(&item.id))
+                        .map(|item| item.snooze_minutes)
+                })
+                .unwrap_or(5);
+            listener_runtime.handle_action(action, snooze_minutes);
             let _ = listener_app.emit("runtime://animation", serde_json::json!({"state": "idle"}));
         }
     });
@@ -184,7 +205,7 @@ fn next_due(reminder: &Reminder, previous: i64, now: i64) -> Option<i64> {
                     .and_hms_opt(hour.parse().ok()?, minute.parse().ok()?, 0)?;
             let timestamp = Local
                 .from_local_datetime(&scheduled)
-                .single()?
+                .earliest()?
                 .timestamp_millis();
             if previous < timestamp {
                 Some(timestamp)

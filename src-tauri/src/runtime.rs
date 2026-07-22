@@ -29,6 +29,13 @@ pub fn start_motion_engine(app: tauri::AppHandle) {
                 continue;
             };
             let state = app.state::<AppState>();
+            if state.dragging.load(Ordering::Relaxed) && !is_left_button_pressed() {
+                // On Windows, tao's drag_window returns as soon as the OS drag begins,
+                // so the frontend's dragging flag can be cleared while the drag is still
+                // in flight. Treat the physical button release as the end of the drag so
+                // the motion engine never fights the cursor mid-drag.
+                state.dragging.store(false, Ordering::Relaxed);
+            }
             let settings = state.settings.lock().expect("settings poisoned").clone();
             let fullscreen = is_foreground_fullscreen(&window);
             state.fullscreen.store(fullscreen, Ordering::Relaxed);
@@ -145,6 +152,9 @@ pub fn start_motion_engine(app: tauri::AppHandle) {
 
 pub fn recall_to_cursor_monitor(app: &tauri::AppHandle) -> Result<(), String> {
     let window = app.get_webview_window("pet").ok_or("pet window missing")?;
+    app.state::<AppState>()
+        .paused
+        .store(false, Ordering::Relaxed);
     let pet_size = window.outer_size().map_err(|error| error.to_string())?;
     let area = cursor_work_area().or_else(|| {
         window
@@ -274,6 +284,17 @@ fn reduced_motion_enabled() -> bool {
 
 #[cfg(not(windows))]
 fn reduced_motion_enabled() -> bool {
+    false
+}
+
+#[cfg(windows)]
+fn is_left_button_pressed() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+    unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000 != 0 }
+}
+
+#[cfg(not(windows))]
+fn is_left_button_pressed() -> bool {
     false
 }
 

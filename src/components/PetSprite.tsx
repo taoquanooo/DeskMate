@@ -2,15 +2,15 @@ import { frameAtElapsedTime, normalizeGazeAngle, type AnimationState } from "../
 import { ANIMATION_ROWS } from "../domain/pets";
 
 const LABELS: Record<Exclude<AnimationState, "look">, string> = {
-  idle: "杨皓正在休息",
-  "running-right": "杨皓正在向右移动",
-  "running-left": "杨皓正在向左移动",
-  waving: "杨皓正在挥手",
-  jumping: "杨皓正在跳跃",
-  failed: "杨皓遇到了一点问题",
-  waiting: "杨皓正在等待",
-  running: "杨皓正在处理",
-  review: "杨皓已经完成",
+  idle: "桌宠正在休息",
+  "running-right": "桌宠正在向右移动",
+  "running-left": "桌宠正在向左移动",
+  waving: "桌宠正在挥手",
+  jumping: "桌宠正在跳跃",
+  failed: "桌宠遇到了一点问题",
+  waiting: "桌宠正在等待",
+  running: "桌宠正在处理",
+  review: "桌宠已经完成",
 };
 
 export interface PetSpriteProps {
@@ -36,7 +36,7 @@ export function PetSprite({
   const cell =
     effectiveState === "look" ? lookCell(directionDegrees) : standardCell(effectiveState, elapsedMs);
   const direction = normalizeGazeAngle(directionDegrees);
-  const label = effectiveState === "look" ? `杨皓正在看向 ${direction}°` : LABELS[effectiveState];
+  const label = effectiveState === "look" ? `桌宠正在看向 ${direction}°` : LABELS[effectiveState];
 
   return (
     <div

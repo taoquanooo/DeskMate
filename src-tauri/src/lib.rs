@@ -38,6 +38,7 @@ pub struct AppState {
     interacting: AtomicBool,
     moving: AtomicBool,
     ready_update: Mutex<Option<ReadyUpdate>>,
+    install_lock: tokio::sync::Mutex<()>,
 }
 
 #[derive(Clone)]
@@ -136,8 +137,16 @@ fn pet_select(app: tauri::AppHandle, id: String, version: String) -> Result<(), 
 }
 
 #[tauri::command]
-fn pet_local_refresh(app: tauri::AppHandle) -> LocalPetScanV1 {
-    pets::scan_local_pets(&custom_pets_root(&app))
+async fn pet_local_refresh(app: tauri::AppHandle) -> LocalPetScanV1 {
+    let root = custom_pets_root(&app);
+    match tauri::async_runtime::spawn_blocking(move || pets::scan_local_pets(&root)).await {
+        Ok(scan) => scan,
+        Err(_) => LocalPetScanV1 {
+            folder_path: String::new(),
+            pets: Vec::new(),
+            errors: vec!["自定义宠物扫描被中断".into()],
+        },
+    }
 }
 
 #[tauri::command]
@@ -152,7 +161,7 @@ fn pet_local_folder_open(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn pet_current(app: tauri::AppHandle) -> PetChangedPayload {
+async fn pet_current(app: tauri::AppHandle) -> PetChangedPayload {
     let selected = app
         .state::<AppState>()
         .settings
@@ -160,14 +169,21 @@ fn pet_current(app: tauri::AppHandle) -> PetChangedPayload {
         .expect("settings poisoned")
         .selected_pet
         .clone();
-    resolve_pet_payload(&app, &selected.id, &selected.version).unwrap_or_else(|_| {
-        PetChangedPayload {
-            id: "yanghao".into(),
-            version: "1.0.0".into(),
-            sprite_version_number: 2,
-            spritesheet_path: None,
-        }
+    let fallback = PetChangedPayload {
+        id: "yanghao".into(),
+        version: "1.0.0".into(),
+        sprite_version_number: 2,
+        spritesheet_path: None,
+    };
+    let fallback_for_task = fallback.clone();
+    match tauri::async_runtime::spawn_blocking(move || {
+        resolve_pet_payload(&app, &selected.id, &selected.version).unwrap_or(fallback_for_task)
     })
+    .await
+    {
+        Ok(payload) => payload,
+        Err(_) => fallback,
+    }
 }
 
 #[tauri::command]
@@ -276,6 +292,7 @@ pub fn run() {
                 interacting: AtomicBool::new(false),
                 moving: AtomicBool::new(false),
                 ready_update: Mutex::new(None),
+                install_lock: tokio::sync::Mutex::new(()),
             });
 
             let drag_app = app.handle().clone();
@@ -297,15 +314,26 @@ pub fn run() {
                 }
             });
 
-            app.handle().plugin(tauri_plugin_autostart::init(
+            if let Err(error) = app.handle().plugin(tauri_plugin_autostart::init(
                 tauri_plugin_autostart::MacosLauncher::LaunchAgent,
                 None,
-            ))?;
-            register_shortcuts(app)?;
+            )) {
+                eprintln!("autostart plugin failed to initialize: {error}");
+            }
+            if let Err(error) = register_shortcuts(app) {
+                eprintln!("global shortcuts failed to register: {error}");
+            }
             create_tray(app)?;
             apply_window_settings(app.handle(), &settings);
-            if settings.onboarding_complete {
-                if let Some(settings_window) = app.get_webview_window("settings") {
+            if let Some(settings_window) = app.get_webview_window("settings") {
+                let window = settings_window.clone();
+                settings_window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                });
+                if settings.onboarding_complete {
                     let _ = settings_window.hide();
                 }
             }
@@ -346,6 +374,7 @@ fn apply_window_settings(app: &tauri::AppHandle, settings: &SettingsV1) {
         192.0 * settings.pet.scale,
         208.0 * settings.pet.scale,
     ));
+    let _ = app.emit("settings://scale", settings.pet.scale);
 }
 
 fn set_click_through(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
@@ -519,9 +548,14 @@ async fn refresh_catalog(app: &tauri::AppHandle) -> Result<PetCatalogV1, String>
     {
         return Err("catalog is too large".into());
     }
-    let bytes = response.bytes().await.map_err(|error| error.to_string())?;
-    if bytes.len() > MAX_CATALOG_BYTES {
-        return Err("catalog is too large".into());
+    let mut stream = response.bytes_stream();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| error.to_string())?;
+        if bytes.len() + chunk.len() > MAX_CATALOG_BYTES {
+            return Err("catalog is too large".into());
+        }
+        bytes.extend_from_slice(&chunk);
     }
     let catalog: PetCatalogV1 =
         serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
@@ -543,6 +577,9 @@ async fn install_entry(app: &tauri::AppHandle, entry: &PetCatalogEntryV1) -> Res
         return Err("pet packages must be immutable GitHub Release HTTPS assets".into());
     }
     let state = app.state::<AppState>();
+    // Serialize installs so a background auto-update and a user-triggered install
+    // can't interleave writes to the same .part file or race the final rename.
+    let _install_guard = state.install_lock.lock().await;
     let response = state
         .client
         .get(package_url)
@@ -713,7 +750,18 @@ async fn auto_update_selected_pet(app: &tauri::AppHandle) -> Result<(), String> 
     };
     install_entry(app, &entry).await?;
     wait_until_pet_idle(app).await;
-    select_pet(app, &entry.id, &entry.version)
+    let still_selected = state
+        .settings
+        .lock()
+        .map_err(|_| "settings lock poisoned")?
+        .selected_pet
+        .id
+        == entry.id;
+    if still_selected {
+        select_pet(app, &entry.id, &entry.version)
+    } else {
+        Ok(())
+    }
 }
 
 async fn wait_until_pet_idle(app: &tauri::AppHandle) {

@@ -4,7 +4,7 @@ import type { LocalPetScanV1, PetCatalogV1 } from "./domain/pets";
 import { Onboarding, type OnboardingChoice } from "./components/Onboarding";
 import { PetWindow } from "./components/PetWindow";
 import { ReminderBubble } from "./components/ReminderBubble";
-import { SettingsApp } from "./components/SettingsApp";
+import { SettingsApp, type UpdateUi } from "./components/SettingsApp";
 import {
   autostartSet,
   emitEvent,
@@ -22,7 +22,9 @@ import {
   settingsGet,
   settingsPatch,
   updaterCheck,
+  updaterInstall,
   type BubblePayload,
+  type UpdateStatus,
 } from "./lib/tauri";
 
 type View = "settings" | "pet" | "bubble" | "onboarding";
@@ -45,6 +47,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
     pets: [],
     errors: [],
   });
+  const [updateUi, setUpdateUi] = useState<UpdateUi>({ state: "idle" });
 
   useEffect(() => {
     let active = true;
@@ -75,6 +78,31 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
     };
   }, [settings?.onboardingComplete]);
 
+  useEffect(() => {
+    let disposedReady: (() => void) | undefined;
+    let disposedError: (() => void) | undefined;
+    let cancelled = false;
+    void listenEvent<UpdateStatus>("update://ready", (status) => {
+      setUpdateUi({ state: "ready", version: status.version, notes: status.notes });
+    }).then((dispose) => {
+      if (cancelled) dispose();
+      else disposedReady = dispose;
+    });
+    void listenEvent<string>("update://error", (error) => {
+      setUpdateUi((current) =>
+        current.state === "ready" ? current : { state: "error", error: String(error) },
+      );
+    }).then((dispose) => {
+      if (cancelled) dispose();
+      else disposedError = dispose;
+    });
+    return () => {
+      cancelled = true;
+      disposedReady?.();
+      disposedError?.();
+    };
+  }, []);
+
   if (settingsError)
     return (
       <div className="app-load-error" role="alert">
@@ -102,8 +130,13 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
         enabled: choice.reminderIds.includes(item.id),
       })),
     };
-    setSettings(await settingsPatch(next));
-    await autostartSet(choice.autostartEnabled);
+    try {
+      const patched = await settingsPatch(next);
+      await autostartSet(choice.autostartEnabled);
+      setSettings(patched);
+    } catch (error) {
+      setSettingsError(`初始化未完成：${String(error)}`);
+    }
   };
 
   if (forceOnboarding || !settings.onboardingComplete) return <Onboarding onFinish={finishOnboarding} />;
@@ -125,21 +158,50 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
       setCatalogError(String(error));
     }
   };
+  const checkUpdates = async () => {
+    setUpdateUi({ state: "checking" });
+    try {
+      const status = await updaterCheck();
+      if (status.available) {
+        setUpdateUi({ state: "ready", version: status.version, notes: status.notes });
+      } else {
+        setUpdateUi({ state: "up-to-date" });
+      }
+    } catch (error) {
+      setUpdateUi({ state: "error", error: String(error) });
+    }
+  };
+  const installUpdate = () => {
+    void updaterInstall().catch((error) => setUpdateUi({ state: "error", error: String(error) }));
+  };
   return (
     <SettingsApp
       initialSettings={settings}
       onSettingsChange={(next) => {
         setSettings(next);
-        void settingsPatch(next);
+        void settingsPatch(next).then(
+          (sanitized) => setSettings(sanitized),
+          () => undefined,
+        );
       }}
       onRecall={() => void petRecall()}
-      onCheckUpdates={() => void updaterCheck()}
+      onCheckUpdates={() => void checkUpdates()}
+      updateUi={updateUi}
+      onInstallUpdate={installUpdate}
       catalog={catalog}
       catalogError={catalogError}
       onCatalogRefresh={() => void refreshCatalog()}
-      onPetInstall={(id, version) => void petInstall(id, version).then(refreshCatalog)}
+      onPetInstall={(id, version) =>
+        void petInstall(id, version).then(
+          () => refreshCatalog(),
+          (error) => setCatalogError(`安装失败：${String(error)}`),
+        )
+      }
       onPetSelect={(id, version) =>
-        void petSelect(id, version).then(() => setSettings({ ...settings, selectedPet: { id, version } }))
+        void petSelect(id, version).then(
+          () => setSettings((current) => (current ? { ...current, selectedPet: { id, version } } : current)),
+          (error) => setCatalogError(`切换宠物失败：${String(error)}`),
+        )
       }
       onAutostartChange={(enabled) => void autostartSet(enabled)}
       localPets={localPetScan.pets}
@@ -169,18 +231,26 @@ export async function loadInitialSettings(): Promise<SettingsV1> {
 }
 
 function BubbleWindow() {
-  const [payload, setPayload] = useState<BubblePayload>({
-    reminderIds: ["stretch"],
-    title: "起来走走吧",
-    message: "活动一下肩颈和双腿",
-  });
+  const [payload, setPayload] = useState<BubblePayload | null>(null);
   useEffect(() => {
-    let unlisten: () => void = () => undefined;
+    let disposed: (() => void) | undefined;
+    let cancelled = false;
     void listenEvent<BubblePayload>("bubble://show", setPayload).then((dispose) => {
-      unlisten = dispose;
+      if (cancelled) dispose();
+      else disposed = dispose;
     });
-    return () => unlisten();
+    return () => {
+      cancelled = true;
+      disposed?.();
+    };
   }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void hideCurrentWindow();
+    }, 30_000);
+    return () => window.clearTimeout(timer);
+  }, [payload]);
+  if (!payload) return null;
   const finish = async (action: "complete" | "snooze" | "dismiss") => {
     await emitEvent("bubble://action", { action, reminderIds: payload.reminderIds });
     await hideCurrentWindow();

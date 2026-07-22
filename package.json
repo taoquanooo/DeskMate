@@ -15,7 +15,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "validate:pet": "node scripts/validate-pet.mjs assets/pets/yanghao",
-    "verify": "pnpm format:check && pnpm typecheck && pnpm test && pnpm test:workflows && pnpm validate:pet && pnpm build",
+    "check:pet-sync": "node scripts/check-pet-sync.mjs",
+    "verify": "pnpm format:check && pnpm typecheck && pnpm test && pnpm test:workflows && pnpm validate:pet && pnpm check:pet-sync && pnpm build",
     "tauri": "tauri"
   },
   "dependencies": {

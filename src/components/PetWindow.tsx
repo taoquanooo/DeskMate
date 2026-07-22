@@ -61,43 +61,58 @@ export function PetWindow() {
   }, [animation.startedAt]);
 
   useEffect(() => {
-    let unlistenAnimation: () => void = () => undefined;
-    let unlistenPet: () => void = () => undefined;
-    void settingsGet().then((settings) => setScale(settings.pet.scale));
-    void petCurrent().then((pet) =>
-      setPetAppearance({
-        spritesheetUrl: petAssetUrl(pet.spritesheetPath),
-        spriteVersionNumber: pet.spriteVersionNumber,
+    let cancelled = false;
+    const disposers: Array<() => void> = [];
+    const track = (promise: Promise<() => void>) => {
+      void promise.then((dispose) => {
+        if (cancelled) dispose();
+        else disposers.push(dispose);
+      });
+    };
+    void settingsGet()
+      .then((settings) => setScale(settings.pet.scale))
+      .catch(() => undefined);
+    void petCurrent()
+      .then((pet) =>
+        setPetAppearance({
+          spritesheetUrl: petAssetUrl(pet.spritesheetPath),
+          spriteVersionNumber: pet.spriteVersionNumber,
+        }),
+      )
+      .catch(() => undefined);
+    track(
+      listenEvent<RuntimeAnimationPayload>("runtime://animation", (payload) => {
+        if (!VALID_STATES.has(payload.state as AnimationState)) return;
+        const next = {
+          state: payload.state as AnimationState,
+          directionDegrees: payload.directionDegrees,
+        };
+        resumeAnimation.current = next;
+        if (interactionActive.current) return;
+        setAnimation({
+          ...next,
+          startedAt: performance.now(),
+        });
       }),
     );
-    void listenEvent<RuntimeAnimationPayload>("runtime://animation", (payload) => {
-      if (!VALID_STATES.has(payload.state as AnimationState)) return;
-      const next = {
-        state: payload.state as AnimationState,
-        directionDegrees: payload.directionDegrees,
-      };
-      resumeAnimation.current = next;
-      if (interactionActive.current) return;
-      setAnimation({
-        ...next,
-        startedAt: performance.now(),
-      });
-    }).then((dispose) => {
-      unlistenAnimation = dispose;
-    });
-    void listenEvent<PetChangedPayload>("pet://changed", (payload) =>
-      setPetAppearance({
-        spritesheetUrl: petAssetUrl(payload.spritesheetPath),
-        spriteVersionNumber: payload.spriteVersionNumber,
-      }),
-    ).then((dispose) => {
-      unlistenPet = dispose;
-    });
+    track(
+      listenEvent<PetChangedPayload>("pet://changed", (payload) =>
+        setPetAppearance({
+          spritesheetUrl: petAssetUrl(payload.spritesheetPath),
+          spriteVersionNumber: payload.spriteVersionNumber,
+        }),
+      ),
+    );
+    track(listenEvent<number>("settings://scale", (value) => setScale(value)));
     return () => {
+      cancelled = true;
+      disposers.forEach((dispose) => dispose());
       window.clearTimeout(singleClickTimer.current);
       window.clearTimeout(interactionTimer.current);
-      unlistenAnimation();
-      unlistenPet();
+      if (interactionActive.current) {
+        interactionActive.current = false;
+        void emitEvent("runtime://interaction", false);
+      }
     };
   }, []);
 
@@ -125,11 +140,11 @@ export function PetWindow() {
 
   const handleWindowDrag = async () => {
     await emitEvent("runtime://dragging", true);
-    try {
-      await startWindowDrag();
-    } finally {
-      await emitEvent("runtime://dragging", false);
-    }
+    await startWindowDrag();
+    // The OS drag continues after startWindowDrag resolves (notably on Windows).
+    // The backend clears the dragging flag once the left mouse button is released,
+    // so we deliberately don't emit false here — doing so would clear the flag
+    // while the drag is still in flight and let the motion engine fight the cursor.
   };
 
   const handlePointerMove = (event: React.PointerEvent) => {
@@ -156,7 +171,11 @@ export function PetWindow() {
         if (event.button === 0) void handleWindowDrag();
       }}
       onPointerMove={handlePointerMove}
-      onPointerLeave={() => setAnimation({ state: "idle", startedAt: performance.now() })}
+      onPointerLeave={() =>
+        setAnimation((current) =>
+          current.state === "look" ? { ...resumeAnimation.current, startedAt: performance.now() } : current,
+        )
+      }
       aria-label="DeskMate 桌宠窗口"
     >
       <PetSprite

@@ -7,7 +7,6 @@ import { DEFAULT_SETTINGS, mergeSettings, type SettingsV1 } from "../domain/sett
 export interface RuntimeAnimationPayload {
   state: string;
   directionDegrees?: number;
-  loopCount?: number;
 }
 
 export interface BubblePayload {
@@ -82,10 +81,6 @@ export async function petCurrent(): Promise<PetChangedPayload> {
 
 export async function petRecall() {
   if (isTauri()) await invoke("pet_recall");
-}
-
-export async function windowSetClickThrough(enabled: boolean) {
-  if (isTauri()) await invoke("window_set_click_through", { enabled });
 }
 
 export async function updaterCheck(): Promise<UpdateStatus> {

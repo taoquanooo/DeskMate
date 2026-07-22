@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Bell,
   Box,
@@ -16,7 +16,15 @@ import {
 import type { Reminder, ReminderSchedule } from "../domain/reminders";
 import type { LocalPetV1, PetCatalogV1 } from "../domain/pets";
 import type { SettingsV1 } from "../domain/settings";
+import { PROJECT_URL, PET_GALLERY_URL } from "../lib/tauri";
 import { PetSprite } from "./PetSprite";
+
+export type UpdateUi = {
+  state: "idle" | "checking" | "up-to-date" | "ready" | "error";
+  version?: string;
+  notes?: string;
+  error?: string;
+};
 
 type Section = "pet" | "reminders" | "library" | "about";
 
@@ -25,6 +33,8 @@ export interface SettingsAppProps {
   onSettingsChange?: (settings: SettingsV1) => void;
   onRecall?: () => void;
   onCheckUpdates?: () => void;
+  updateUi?: UpdateUi;
+  onInstallUpdate?: () => void;
   catalog?: PetCatalogV1 | null;
   catalogError?: string | null;
   onCatalogRefresh?: () => void;
@@ -41,9 +51,6 @@ export interface SettingsAppProps {
   onShareProject?: () => Promise<"shared" | "copied" | "cancelled">;
 }
 
-const PROJECT_URL = "https://github.com/taoquanooo/DeskMate";
-const PET_GALLERY_URL = "https://codex-pet.org/zh/";
-
 const NAV: Array<{ id: Section; label: string; icon: typeof PawPrint }> = [
   { id: "pet", label: "桌宠", icon: PawPrint },
   { id: "reminders", label: "提醒", icon: Bell },
@@ -56,6 +63,8 @@ export function SettingsApp({
   onSettingsChange,
   onRecall,
   onCheckUpdates,
+  updateUi,
+  onInstallUpdate,
   catalog,
   catalogError,
   onCatalogRefresh,
@@ -73,6 +82,10 @@ export function SettingsApp({
 }: SettingsAppProps) {
   const [settings, setSettings] = useState(initialSettings);
   const [section, setSection] = useState<Section>("pet");
+
+  useEffect(() => {
+    setSettings(initialSettings);
+  }, [initialSettings]);
 
   const persist = (next: SettingsV1) => {
     setSettings(next);
@@ -146,6 +159,8 @@ export function SettingsApp({
           <About
             settings={settings}
             onCheckUpdates={onCheckUpdates}
+            updateUi={updateUi}
+            onInstallUpdate={onInstallUpdate}
             onOpenProject={onOpenProject}
             onShareProject={onShareProject}
             onAutostartChange={(enabled) => {
@@ -410,8 +425,8 @@ function PetLibrary({
       </section>
       {localPetErrors.length > 0 && (
         <div className="local-pet-errors" role="status">
-          {localPetErrors.map((message) => (
-            <span key={message}>{message}</span>
+          {localPetErrors.map((message, index) => (
+            <span key={`${index}-${message}`}>{message}</span>
           ))}
         </div>
       )}
@@ -487,17 +502,22 @@ function PetLibrary({
 function About({
   settings,
   onCheckUpdates,
+  updateUi,
+  onInstallUpdate,
   onAutostartChange,
   onOpenProject,
   onShareProject,
 }: {
   settings: SettingsV1;
   onCheckUpdates?: () => void;
+  updateUi?: UpdateUi;
+  onInstallUpdate?: () => void;
   onAutostartChange: (enabled: boolean) => void;
   onOpenProject?: () => void;
   onShareProject?: () => Promise<"shared" | "copied" | "cancelled">;
 }) {
   const [shareStatus, setShareStatus] = useState<"idle" | "shared" | "copied">("idle");
+  const updateState = updateUi?.state ?? "idle";
   return (
     <>
       <PageHeader title="关于 DeskMate" subtitle="一个开源、安静、只属于你电脑的桌面伙伴。" />
@@ -530,11 +550,33 @@ function About({
           <Share2 size={16} />
           {shareStatus === "copied" ? "链接已复制" : shareStatus === "shared" ? "已分享" : "一键分享"}
         </button>
-        <button className="button button-secondary" onClick={onCheckUpdates}>
+        <button
+          className="button button-secondary"
+          onClick={onCheckUpdates}
+          disabled={updateState === "checking"}
+        >
           <RefreshCw size={16} />
-          检查更新
+          {updateState === "checking" ? "正在检查…" : "检查更新"}
         </button>
       </div>
+      {updateState === "up-to-date" && (
+        <p className="about-update-status" role="status">
+          已是最新版本。
+        </p>
+      )}
+      {updateState === "error" && (
+        <p className="about-update-status" role="alert">
+          检查更新失败：{updateUi?.error}
+        </p>
+      )}
+      {updateState === "ready" && (
+        <div className="about-update-ready" role="status">
+          <span>发现新版本 v{updateUi?.version}，已下载完成。</span>
+          <button className="button button-primary" onClick={onInstallUpdate}>
+            安装并重启
+          </button>
+        </div>
+      )}
       <div className="about-setting">
         <span>
           <strong>开机时启动 DeskMate</strong>

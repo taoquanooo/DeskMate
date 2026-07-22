@@ -148,10 +148,6 @@ impl SettingsStore {
         Ok(next)
     }
 
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
     fn preserve_corrupt_file(&self) {
         let stamp = chrono::Utc::now().timestamp();
         let backup = self
