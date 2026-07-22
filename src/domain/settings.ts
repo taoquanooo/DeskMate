@@ -1,5 +1,8 @@
 import { createDefaultReminders, type Reminder } from "./reminders";
 
+export const MIN_PET_SCALE = 0.25;
+export const MAX_PET_SCALE = 3;
+
 export interface SettingsV1 {
   schemaVersion: 1;
   onboardingComplete: boolean;
@@ -48,7 +51,7 @@ export function mergeSettings(value: unknown): SettingsV1 {
       version: stringOr(selectedPet.version, defaults.selectedPet.version),
     },
     pet: {
-      scale: clamp(numberOr(pet.scale, defaults.pet.scale), 0.75, 1.5),
+      scale: clamp(numberOr(pet.scale, defaults.pet.scale), MIN_PET_SCALE, MAX_PET_SCALE),
       speed: clamp(numberOr(pet.speed, defaults.pet.speed), 40, 140),
       roamingEnabled: booleanOr(pet.roamingEnabled, defaults.pet.roamingEnabled),
       alwaysOnTop: booleanOr(pet.alwaysOnTop, defaults.pet.alwaysOnTop),

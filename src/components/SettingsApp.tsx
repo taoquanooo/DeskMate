@@ -18,6 +18,7 @@ import type { Reminder, ReminderSchedule } from "../domain/reminders";
 import type { LocalPetV1, PetCatalogV1 } from "../domain/pets";
 import type { SettingsV1 } from "../domain/settings";
 import { PROJECT_URL, PET_GALLERY_URL } from "../lib/tauri";
+import { PetSizeSetting } from "./PetSizeSetting";
 import { PetSprite } from "./PetSprite";
 
 export type UpdateUi = {
@@ -221,15 +222,7 @@ function PetSettings({
           </button>
         </section>
         <section className="setting-list" aria-label="桌宠行为设置">
-          <RangeSetting
-            label="大小"
-            value={settings.pet.scale}
-            min={0.75}
-            max={1.5}
-            step={0.05}
-            suffix={`${Math.round(settings.pet.scale * 100)}%`}
-            onChange={(value) => patchPet({ scale: value })}
-          />
+          <PetSizeSetting scale={settings.pet.scale} onChange={(scale) => patchPet({ scale })} />
           <RangeSetting
             label="移动速度"
             value={settings.pet.speed}

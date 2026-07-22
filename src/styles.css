@@ -257,6 +257,47 @@ button {
   width: min(205px, 48%);
   accent-color: var(--accent);
 }
+.pet-size-controls {
+  flex: 1;
+  min-width: 0;
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.pet-size-controls > input[type="range"] {
+  width: min(160px, 100%);
+  min-width: 90px;
+  accent-color: var(--accent);
+}
+.percent-input {
+  width: 70px;
+  height: 34px;
+  flex: 0 0 auto;
+  display: flex !important;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid var(--divider);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--muted);
+}
+.percent-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.percent-input input {
+  width: 44px;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  background: transparent;
+  text-align: right;
+}
+.percent-input input::-webkit-inner-spin-button {
+  appearance: none;
+}
 input[type="range"] {
   appearance: none;
   height: 4px;

@@ -64,7 +64,7 @@ impl SettingsV1 {
         if self.schema_version != 1 {
             return Self::default();
         }
-        self.pet.scale = self.pet.scale.clamp(0.75, 1.5);
+        self.pet.scale = self.pet.scale.clamp(0.25, 3.0);
         self.pet.speed = self.pet.speed.clamp(40.0, 140.0);
         self.reminders.retain(|item| {
             !item.id.trim().is_empty()
@@ -277,6 +277,17 @@ mod tests {
         store.save_value(&value).unwrap();
         let loaded = store.load();
         assert_eq!(loaded.pet.speed, 140.0);
-        assert_eq!(loaded.pet.scale, 0.75);
+        assert_eq!(loaded.pet.scale, 0.25);
+    }
+
+    #[test]
+    fn caps_oversized_pet_scale_at_three_hundred_percent() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = SettingsStore::new(directory.path().join("settings.json"));
+        let mut value = store.load_value();
+        value["pet"]["scale"] = json!(9);
+        store.save_value(&value).unwrap();
+        let loaded = store.load();
+        assert_eq!(loaded.pet.scale, 3.0);
     }
 }
