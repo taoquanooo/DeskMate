@@ -48,6 +48,7 @@ export function PetWindow() {
   const singleClickTimer = useRef<number | undefined>(undefined);
   const interactionTimer = useRef<number | undefined>(undefined);
   const interactionActive = useRef(false);
+  const activeInteraction = useRef<{ state: InteractionState; startedAt: number } | undefined>(undefined);
   const dragMoved = useRef(false);
   const resumeAnimation = useRef<{
     state: AnimationState;
@@ -122,6 +123,10 @@ export function PetWindow() {
     );
     track(
       listenEvent("runtime://drag-ended", () => {
+        if (interactionActive.current && activeInteraction.current) {
+          setAnimation(activeInteraction.current);
+          return;
+        }
         setAnimation({ ...resumeAnimation.current, startedAt: performance.now() });
       }),
     );
@@ -141,6 +146,7 @@ export function PetWindow() {
       window.clearTimeout(interactionTimer.current);
       if (interactionActive.current) {
         interactionActive.current = false;
+        activeInteraction.current = undefined;
         void emitEvent("runtime://interaction", false);
       }
     };
@@ -150,9 +156,12 @@ export function PetWindow() {
     window.clearTimeout(interactionTimer.current);
     interactionActive.current = true;
     void emitEvent("runtime://interaction", true);
-    setAnimation({ state, startedAt: performance.now() });
+    const interaction = { state, startedAt: performance.now() };
+    activeInteraction.current = interaction;
+    setAnimation(interaction);
     interactionTimer.current = window.setTimeout(() => {
       interactionActive.current = false;
+      activeInteraction.current = undefined;
       setAnimation({ ...resumeAnimation.current, startedAt: performance.now() });
       void emitEvent("runtime://interaction", false);
     }, duration);
@@ -174,6 +183,7 @@ export function PetWindow() {
 
   const handleContextMenu = (event: React.MouseEvent) => {
     event.preventDefault();
+    window.clearTimeout(singleClickTimer.current);
     const action = CONTEXT_ACTIONS[Math.floor(Math.random() * CONTEXT_ACTIONS.length)]!;
     playInteraction(action.state, action.duration);
   };

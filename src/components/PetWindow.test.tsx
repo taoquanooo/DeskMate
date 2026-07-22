@@ -94,6 +94,21 @@ describe("PetWindow", () => {
     expect(screen.getByLabelText("桌宠正在等待")).toBeInTheDocument();
   });
 
+  it("keeps the context action when it follows a pending single click", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    render(<PetWindow />);
+    await act(async () => undefined);
+
+    const window = screen.getByLabelText("DeskMate 桌宠窗口");
+    fireEvent.click(window);
+    fireEvent.contextMenu(window);
+    expect(screen.getByLabelText("桌宠正在等待")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(230));
+
+    expect(screen.getByLabelText("桌宠正在等待")).toBeInTheDocument();
+  });
+
   it("suppresses the pending click action after native drag movement", async () => {
     vi.useFakeTimers();
     render(<PetWindow />);
@@ -126,5 +141,27 @@ describe("PetWindow", () => {
     act(() => dragEnded?.(undefined));
 
     expect(screen.getByLabelText("桌宠正在等待")).toBeInTheDocument();
+  });
+
+  it("restores an active interaction after native dragging ends", async () => {
+    vi.useFakeTimers();
+    render(<PetWindow />);
+    await act(async () => undefined);
+
+    const dragAnimation = tauriMocks.eventHandlers.get("runtime://drag-animation");
+    const dragEnded = tauriMocks.eventHandlers.get("runtime://drag-ended");
+    expect(dragAnimation).toBeDefined();
+    expect(dragEnded).toBeDefined();
+
+    fireEvent.doubleClick(screen.getByLabelText("DeskMate 桌宠窗口"));
+    expect(screen.getByLabelText("桌宠正在挥手")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(300));
+    act(() => dragAnimation?.({ state: "running-left" }));
+    expect(screen.getByLabelText("桌宠正在向左移动")).toBeInTheDocument();
+    act(() => dragEnded?.(undefined));
+
+    expect(screen.getByLabelText("桌宠正在挥手")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(600));
+    expect(screen.getByLabelText("桌宠正在休息")).toBeInTheDocument();
   });
 });
