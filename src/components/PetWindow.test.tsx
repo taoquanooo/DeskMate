@@ -186,4 +186,26 @@ describe("PetWindow", () => {
     act(() => dragEnded?.(undefined));
     expect(screen.getByLabelText("桌宠正在等待")).toBeInTheDocument();
   });
+
+  it("defers backend animation updates until native dragging ends", async () => {
+    vi.useFakeTimers();
+    render(<PetWindow />);
+    await act(async () => undefined);
+
+    const runtimeAnimation = tauriMocks.eventHandlers.get("runtime://animation");
+    const dragAnimation = tauriMocks.eventHandlers.get("runtime://drag-animation");
+    const dragEnded = tauriMocks.eventHandlers.get("runtime://drag-ended");
+    expect(runtimeAnimation).toBeDefined();
+    expect(dragAnimation).toBeDefined();
+    expect(dragEnded).toBeDefined();
+
+    fireEvent.doubleClick(screen.getByLabelText("DeskMate 桌宠窗口"));
+    act(() => dragAnimation?.({ state: "running-left" }));
+    act(() => vi.advanceTimersByTime(900));
+    act(() => runtimeAnimation?.({ state: "review" }));
+
+    expect(screen.getByLabelText("桌宠正在向左移动")).toBeInTheDocument();
+    act(() => dragEnded?.(undefined));
+    expect(screen.getByLabelText("桌宠已经完成")).toBeInTheDocument();
+  });
 });

@@ -99,7 +99,7 @@ export function PetWindow() {
           directionDegrees: payload.directionDegrees,
         };
         resumeAnimation.current = next;
-        if (interactionActive.current) return;
+        if (interactionActive.current || dragActive.current) return;
         setAnimation({
           ...next,
           startedAt: performance.now(),
