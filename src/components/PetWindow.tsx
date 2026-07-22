@@ -25,6 +25,14 @@ const VALID_STATES = new Set<AnimationState>([
   "look",
 ]);
 
+const CONTEXT_ACTIONS = [
+  { state: "waving", duration: 900 },
+  { state: "waiting", duration: 1_100 },
+  { state: "review", duration: 1_050 },
+] as const;
+
+type InteractionState = "jumping" | (typeof CONTEXT_ACTIONS)[number]["state"];
+
 export function PetWindow() {
   const [animation, setAnimation] = useState<{
     state: AnimationState;
@@ -40,6 +48,7 @@ export function PetWindow() {
   const singleClickTimer = useRef<number | undefined>(undefined);
   const interactionTimer = useRef<number | undefined>(undefined);
   const interactionActive = useRef(false);
+  const dragMoved = useRef(false);
   const resumeAnimation = useRef<{
     state: AnimationState;
     directionDegrees?: number;
@@ -96,6 +105,27 @@ export function PetWindow() {
       }),
     );
     track(
+      listenEvent<RuntimeAnimationPayload>("runtime://drag-animation", (payload) => {
+        if (!VALID_STATES.has(payload.state as AnimationState)) return;
+        setAnimation({
+          state: payload.state as AnimationState,
+          directionDegrees: payload.directionDegrees,
+          startedAt: performance.now(),
+        });
+      }),
+    );
+    track(
+      listenEvent("runtime://drag-moved", () => {
+        window.clearTimeout(singleClickTimer.current);
+        dragMoved.current = true;
+      }),
+    );
+    track(
+      listenEvent("runtime://drag-ended", () => {
+        setAnimation({ ...resumeAnimation.current, startedAt: performance.now() });
+      }),
+    );
+    track(
       listenEvent<PetChangedPayload>("pet://changed", (payload) =>
         setPetAppearance({
           spritesheetUrl: petAssetUrl(payload.spritesheetPath),
@@ -116,7 +146,7 @@ export function PetWindow() {
     };
   }, []);
 
-  const playInteraction = (state: "waving" | "jumping", duration: number) => {
+  const playInteraction = (state: InteractionState, duration: number) => {
     window.clearTimeout(interactionTimer.current);
     interactionActive.current = true;
     void emitEvent("runtime://interaction", true);
@@ -130,12 +160,22 @@ export function PetWindow() {
 
   const handleClick = () => {
     window.clearTimeout(singleClickTimer.current);
-    singleClickTimer.current = window.setTimeout(() => playInteraction("waving", 900), 230);
+    if (dragMoved.current) {
+      dragMoved.current = false;
+      return;
+    }
+    singleClickTimer.current = window.setTimeout(() => playInteraction("jumping", 1_000), 230);
   };
 
   const handleDoubleClick = () => {
     window.clearTimeout(singleClickTimer.current);
-    playInteraction("jumping", 1_000);
+    playInteraction("waving", 900);
+  };
+
+  const handleContextMenu = (event: React.MouseEvent) => {
+    event.preventDefault();
+    const action = CONTEXT_ACTIONS[Math.floor(Math.random() * CONTEXT_ACTIONS.length)]!;
+    playInteraction(action.state, action.duration);
   };
 
   const handleWindowDrag = async () => {
@@ -168,8 +208,12 @@ export function PetWindow() {
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onPointerDown={(event) => {
-        if (event.button === 0) void handleWindowDrag();
+        if (event.button === 0) {
+          dragMoved.current = false;
+          void handleWindowDrag();
+        }
       }}
+      onContextMenu={handleContextMenu}
       onPointerMove={handlePointerMove}
       onPointerLeave={() =>
         setAnimation((current) =>

@@ -1,15 +1,17 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 
 const tauriMocks = vi.hoisted(() => ({
+  eventHandlers: new Map<string, (payload: unknown) => void>(),
+  listenEvent: vi.fn(),
   petCurrent: vi.fn(),
   settingsGet: vi.fn(),
 }));
 
 vi.mock("../lib/tauri", () => ({
   emitEvent: vi.fn(),
-  listenEvent: vi.fn().mockResolvedValue(() => undefined),
+  listenEvent: tauriMocks.listenEvent,
   petAssetUrl: (path?: string | null) => path ?? "/pets/yanghao/spritesheet.webp",
   petCurrent: tauriMocks.petCurrent,
   settingsGet: tauriMocks.settingsGet,
@@ -19,6 +21,29 @@ vi.mock("../lib/tauri", () => ({
 import { PetWindow } from "./PetWindow";
 
 describe("PetWindow", () => {
+  beforeEach(() => {
+    tauriMocks.eventHandlers.clear();
+    tauriMocks.listenEvent.mockReset();
+    tauriMocks.petCurrent.mockReset();
+    tauriMocks.settingsGet.mockReset();
+    tauriMocks.listenEvent.mockImplementation(async (event, handler) => {
+      tauriMocks.eventHandlers.set(event, handler);
+      return () => undefined;
+    });
+    tauriMocks.settingsGet.mockResolvedValue(structuredClone(DEFAULT_SETTINGS));
+    tauriMocks.petCurrent.mockResolvedValue({
+      id: "yanghao",
+      version: "1.0.0",
+      spriteVersionNumber: 2,
+      spritesheetPath: null,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it("restores a selected custom pet after the application restarts", async () => {
     tauriMocks.settingsGet.mockResolvedValue(structuredClone(DEFAULT_SETTINGS));
     tauriMocks.petCurrent.mockResolvedValue({
@@ -37,5 +62,69 @@ describe("PetWindow", () => {
         backgroundSize: "1536px 1872px",
       }),
     );
+  });
+
+  it("plays jumping after a single click", async () => {
+    vi.useFakeTimers();
+    render(<PetWindow />);
+    await act(async () => undefined);
+
+    fireEvent.click(screen.getByLabelText("DeskMate 桌宠窗口"));
+    act(() => vi.advanceTimersByTime(230));
+
+    expect(screen.getByLabelText("桌宠正在跳跃")).toBeInTheDocument();
+  });
+
+  it("plays waving after a double click", async () => {
+    render(<PetWindow />);
+    await act(async () => undefined);
+
+    fireEvent.doubleClick(screen.getByLabelText("DeskMate 桌宠窗口"));
+
+    expect(screen.getByLabelText("桌宠正在挥手")).toBeInTheDocument();
+  });
+
+  it("plays the selected action after a right click", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    render(<PetWindow />);
+    await act(async () => undefined);
+
+    fireEvent.contextMenu(screen.getByLabelText("DeskMate 桌宠窗口"));
+
+    expect(screen.getByLabelText("桌宠正在等待")).toBeInTheDocument();
+  });
+
+  it("suppresses the pending click action after native drag movement", async () => {
+    vi.useFakeTimers();
+    render(<PetWindow />);
+    await act(async () => undefined);
+
+    fireEvent.click(screen.getByLabelText("DeskMate 桌宠窗口"));
+    const dragMoved = tauriMocks.eventHandlers.get("runtime://drag-moved");
+    expect(dragMoved).toBeDefined();
+    dragMoved?.(undefined);
+    act(() => vi.advanceTimersByTime(230));
+
+    expect(screen.queryByLabelText("桌宠正在跳跃")).not.toBeInTheDocument();
+  });
+
+  it("restores the pre-drag animation when native dragging ends", async () => {
+    render(<PetWindow />);
+    await act(async () => undefined);
+
+    const runtimeAnimation = tauriMocks.eventHandlers.get("runtime://animation");
+    const dragAnimation = tauriMocks.eventHandlers.get("runtime://drag-animation");
+    const dragEnded = tauriMocks.eventHandlers.get("runtime://drag-ended");
+    expect(runtimeAnimation).toBeDefined();
+    expect(dragAnimation).toBeDefined();
+    expect(dragEnded).toBeDefined();
+
+    act(() => runtimeAnimation?.({ state: "waiting" }));
+    expect(screen.getByLabelText("桌宠正在等待")).toBeInTheDocument();
+    act(() => dragAnimation?.({ state: "running-left" }));
+    expect(screen.getByLabelText("桌宠正在向左移动")).toBeInTheDocument();
+    act(() => dragEnded?.(undefined));
+
+    expect(screen.getByLabelText("桌宠正在等待")).toBeInTheDocument();
   });
 });
