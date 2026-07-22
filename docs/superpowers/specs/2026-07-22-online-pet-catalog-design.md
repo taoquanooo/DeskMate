@@ -2,7 +2,7 @@
 
 ## 目标
 
-先发布一次 `v0.1.1` 兼容更新，使在线官方导入与本地导入一样自动识别 Codex v1/v2，并允许宠物包只包含 `pet.json` 和 `spritesheet.webp`。此后新增官方宠物时不修改 Windows 安装包，也不重新编译 DeskMate。安装包只保留杨皓作为离线兜底；其余宠物由在线目录发现，用户点击安装后才下载到本机应用数据目录。
+先发布一次 `v0.1.1` 兼容更新，使在线官方导入与本地导入一样自动识别 Codex v1/v2，并允许宠物包只包含 `pet.json` 和 `spritesheet.webp`。安装包内置杨皓和 Lev-neon 两只离线可用宠物；其余宠物由在线目录发现，用户点击安装后才下载到本机应用数据目录。此后新增在线官方宠物时不修改 Windows 安装包，也不重新编译 DeskMate。
 
 ## 方案比较
 
@@ -23,6 +23,11 @@
 ## 仓库结构
 
 ```text
+public/
+  pets/
+    yanghao/
+    lev-neon/
+
 online-pets/
   <pet-id>/
     pet.json
@@ -57,6 +62,7 @@ catalog/
 
 ## 兼容与预览
 
+- 杨皓和 Lev-neon 是安装包内置宠物，断网时也能在宠物库中切换；Lev-neon 不进入 `pets-v1` 在线 ZIP。
 - 在线官方包支持 `1536x1872` 的 v1 和 `1536x2288` 的 v2；声明版本时必须与实际尺寸一致，省略时由程序自动识别。
 - ZIP 根目录必须有 `pet.json` 和 `spritesheet.webp`，可选有 `ASSET_LICENSE.txt`，禁止其他文件和路径。
 - 首版在线目录使用统一的轻量占位预览图，避免要求用户额外制作预览文件；宠物安装和运行不受影响。
@@ -77,6 +83,7 @@ catalog/
 - 工作流测试证明宠物发布任务不包含 Rust、Cargo、Tauri 或 Windows 安装包构建。
 - 完整 `pnpm verify` 通过。
 - v0.1.1 可从在线 `catalog.json` 刷新、下载、安装并切换一只 v1 和一只 v2 宠物。
+- v0.1.1 离线时也能选择并运行 Yanghao 与 Lev-neon，且 Lev-neon 的实际图集用于缩略图和桌宠窗口。
 - v0.1.1 发布后，单独增加宠物只触发 `publish-pets.yml`，不触发应用构建或安装包发布。
 
 ## 不在本次范围

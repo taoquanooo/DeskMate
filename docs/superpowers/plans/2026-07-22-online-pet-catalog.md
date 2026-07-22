@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- The Windows installer keeps only `public/pets/yanghao` as the offline fallback.
+- The Windows installer keeps `public/pets/yanghao` and `public/pets/lev-neon` as offline built-in pets.
 - After the one-time v0.1.1 compatibility release, pet-only changes must not invoke Cargo, Rust, Tauri, NSIS, or a Windows application build.
 - The catalog field set and GitHub Release URL allowlist remain unchanged; `spriteVersionNumber` accepts only `1 | 2`.
 - Each online pet requires only `pet.json` and `spritesheet.webp`; `ASSET_LICENSE.txt` is optional.
@@ -126,7 +126,63 @@ git commit -m "Support v1 pets in the online catalog"
 
 ---
 
-### Task 2: Online Pet Builder and Source Migration
+### Task 2: Bundle Lev-neon as an Offline Built-in Pet
+
+**Files:**
+
+- Add: `public/pets/lev-neon/pet.json`
+- Add: `public/pets/lev-neon/spritesheet.webp`
+- Modify: `src-tauri/src/lib.rs`
+- Modify: `src/lib/tauri.ts`
+- Modify: `src/components/SettingsApp.tsx`
+- Modify: focused tests for the files above
+
+**Interfaces:**
+
+- Consumes: the validated Codex v2 atlas at `public/pets/lev-neon`.
+- Produces: a second bundled pet selectable offline from the library, with the pet window and thumbnails loading `/pets/lev-neon/spritesheet.webp`.
+
+- [ ] **Step 1: Write failing built-in pet tests**
+
+Add focused tests proving that:
+
+- selecting `lev-neon@1.0.0` resolves to sprite version 2 and its bundled `/pets/lev-neon/spritesheet.webp` URL without requiring a downloaded data-directory package;
+- `petAssetUrl` passes a `/pets/...` bundled URL through unchanged while continuing to convert installed filesystem paths;
+- the pet library renders both Yanghao and Lev-neon, marks the selected one, and calls `onSelect("lev-neon", "1.0.0")` from its Use button.
+
+- [ ] **Step 2: Run focused tests and verify RED**
+
+Run the relevant Rust and Vitest test filters selected in Step 1.
+
+Expected: FAIL because only Yanghao is recognized and listed as built-in, and bundled non-Yanghao asset URLs are not represented.
+
+- [ ] **Step 3: Implement the minimal built-in registry**
+
+- Keep Lev-neon under `public/pets/lev-neon`; do not move it to `online-pets` and do not package it in `pets-v1`.
+- Replace scattered one-off Yanghao selection logic with a small two-entry built-in registry or equivalent focused helper.
+- Return a bundled asset URL for Lev-neon and keep Yanghao's existing fallback behavior compatible.
+- Update `petAssetUrl` so trusted application-root `/pets/...` URLs pass through unchanged; installed/custom filesystem paths must still use Tauri's converted asset protocol.
+- Render a second built-in row in the pet library with its actual atlas thumbnail, name `Lev-neon`, description from its manifest, installed/current state, and Use action.
+- Ensure online catalog rows filter any catalog entry that duplicates either built-in id/version.
+- Preserve the default selected pet as Yanghao; this task adds a choice but does not migrate existing settings.
+
+- [ ] **Step 4: Verify GREEN and assets**
+
+Run focused Rust/Vitest tests, validate `public/pets/lev-neon/pet.json` and its 1536x2288 WebP atlas, and run `git diff --check`.
+
+Expected: all focused tests pass; Lev-neon validates as a Codex v2 atlas.
+
+- [ ] **Step 5: Commit the built-in pet**
+
+```powershell
+git add -- public/pets/lev-neon src-tauri/src/lib.rs src/lib/tauri.ts src/components/SettingsApp.tsx
+git add -- src-tauri/src/*test* src/**/*.test.ts src/**/*.test.tsx
+git commit -m "Bundle Lev-neon as a built-in pet"
+```
+
+---
+
+### Task 3: Online Pet Builder and Source Migration
 
 **Files:**
 
@@ -422,7 +478,7 @@ git commit -m "Build official pets outside the installer"
 
 ---
 
-### Task 3: Lightweight Pet Publishing Workflow
+### Task 4: Lightweight Pet Publishing Workflow
 
 **Files:**
 
@@ -431,7 +487,7 @@ git commit -m "Build official pets outside the installer"
 
 **Interfaces:**
 
-- Consumes: Task 2 CLI and generated `online-pets-dist/packages`, `online-pets-dist/pages`.
+- Consumes: Task 3 CLI and generated `online-pets-dist/packages`, `online-pets-dist/pages`.
 - Produces: GitHub Release tag `pets-v1` assets and the deployed Pages catalog.
 
 - [ ] **Step 1: Write the failing workflow contract test**
@@ -532,7 +588,7 @@ git commit -m "Publish online pets without app builds"
 
 ---
 
-### Task 4: Version, Documentation, Regression Verification, and PR Update
+### Task 5: Version, Documentation, Regression Verification, and PR Update
 
 **Files:**
 
@@ -541,11 +597,11 @@ git commit -m "Publish online pets without app builds"
 - Modify: `src-tauri/tauri.conf.json`
 - Modify: `src/components/SettingsApp.tsx`
 - Modify: `README.md`
-- Verify: all files changed by Tasks 1-3
+- Verify: all files changed by Tasks 1-4
 
 **Interfaces:**
 
-- Consumes: the compatibility update, builder, and workflow from Tasks 1-3.
+- Consumes: the compatibility update, bundled pet, builder, and workflow from Tasks 1-4.
 - Produces: DeskMate v0.1.1 metadata, contributor-facing publishing documentation, and a verified PR.
 
 - [ ] **Step 1: Bump the one-time compatibility release to v0.1.1**
@@ -587,7 +643,7 @@ Expected: exit 0 with no whitespace errors.
 
 Run: `git status -sb`
 
-Expected: only intended tracked changes plus the user's pre-existing unrelated untracked files; no added official pet remains under `public/pets`.
+Expected: only intended tracked changes plus the user's pre-existing unrelated untracked files; `public/pets` contains only the two intentional bundled pets, Yanghao and Lev-neon.
 
 - [ ] **Step 4: Commit version and documentation**
 
