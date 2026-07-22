@@ -27,6 +27,7 @@ futures-util = "0.3"
 hex = "0.4"
 image = { version = "0.25", default-features = false, features = ["webp"] }
 rand = "0.9"
+rfd = "0.14"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 semver = "1"
 serde = { version = "1", features = ["derive"] }

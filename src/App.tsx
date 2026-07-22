@@ -7,6 +7,7 @@ import { ReminderBubble } from "./components/ReminderBubble";
 import { SettingsApp, type UpdateUi } from "./components/SettingsApp";
 import {
   autostartSet,
+  customPetsDirPick,
   emitEvent,
   hideCurrentWindow,
   listenEvent,
@@ -209,6 +210,14 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
       localPetErrors={localPetScan.errors}
       onOpenLocalPetFolder={() => void petLocalFolderOpen().then(refreshLocalPets)}
       onLocalPetRefresh={() => void refreshLocalPets()}
+      onCustomPetsDirPick={async () => {
+        const picked = await customPetsDirPick();
+        if (picked) {
+          await refreshLocalPets();
+          setSettings((current) => (current ? { ...current, customPetsDir: picked } : current));
+        }
+        return picked;
+      }}
       onOpenPetGallery={() => void openPetGalleryUrl()}
       onOpenProject={() => void openProjectUrl()}
       onShareProject={shareProject}

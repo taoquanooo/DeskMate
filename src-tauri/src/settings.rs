@@ -14,6 +14,8 @@ pub struct SettingsV1 {
     pub selected_pet: SelectedPet,
     pub pet: PetSettings,
     pub reminders: Vec<Reminder>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_pets_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

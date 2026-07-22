@@ -31,6 +31,7 @@ pub struct AppState {
     settings_store: SettingsStore,
     catalog: RwLock<Option<PetCatalogV1>>,
     data_dir: PathBuf,
+    custom_pets_dir: RwLock<PathBuf>,
     client: reqwest::Client,
     paused: AtomicBool,
     fullscreen: AtomicBool,
@@ -138,7 +139,24 @@ fn pet_select(app: tauri::AppHandle, id: String, version: String) -> Result<(), 
 
 #[tauri::command]
 async fn pet_local_refresh(app: tauri::AppHandle) -> LocalPetScanV1 {
-    let root = custom_pets_root(&app);
+    // Same pre-manage race as `pet_current`: the settings window can invoke
+    // this on mount before `app.manage(AppState)` has run. Without managed
+    // state there is no data dir yet, so return an empty scan rather than
+    // panicking under `panic = "abort"`.
+    let root = match app.try_state::<AppState>() {
+        Some(state) => state
+            .custom_pets_dir
+            .read()
+            .expect("custom_pets_dir lock poisoned")
+            .clone(),
+        None => {
+            return LocalPetScanV1 {
+                folder_path: String::new(),
+                pets: Vec::new(),
+                errors: Vec::new(),
+            }
+        }
+    };
     match tauri::async_runtime::spawn_blocking(move || pets::scan_local_pets(&root)).await {
         Ok(scan) => scan,
         Err(_) => LocalPetScanV1 {
@@ -161,19 +179,62 @@ fn pet_local_folder_open(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn custom_pets_dir_pick(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let picked = tauri::async_runtime::spawn_blocking(|| {
+        rfd::FileDialog::new()
+            .set_title("选择自定义宠物文件夹")
+            .pick_folder()
+    })
+    .await
+    .map_err(|error| format!("文件夹选择器出错：{error}"))?;
+    let Some(path) = picked else {
+        return Ok(None);
+    };
+    std::fs::create_dir_all(&path).map_err(|error| format!("无法创建文件夹：{error}"))?;
+    let path_string = path.display().to_string();
+    let state = app.state::<AppState>();
+    {
+        let mut settings = state
+            .settings
+            .lock()
+            .map_err(|_| "settings lock poisoned")?;
+        settings.custom_pets_dir = Some(path_string.clone());
+        state
+            .settings_store
+            .save(&settings)
+            .map_err(|error| error.to_string())?;
+    }
+    *state
+        .custom_pets_dir
+        .write()
+        .map_err(|_| "custom_pets_dir lock poisoned")? = path;
+    Ok(Some(path_string))
+}
+
+#[tauri::command]
 async fn pet_current(app: tauri::AppHandle) -> PetChangedPayload {
-    let selected = app
-        .state::<AppState>()
-        .settings
-        .lock()
-        .expect("settings poisoned")
-        .selected_pet
-        .clone();
     let fallback = PetChangedPayload {
         id: "yanghao".into(),
         version: "1.0.0".into(),
         sprite_version_number: 2,
         spritesheet_path: None,
+    };
+    // The pet window's frontend invokes `pet_current` on mount. Tauri creates
+    // config windows before running the `setup()` closure that calls
+    // `app.manage(AppState)`, so this command can race ahead of manage() and
+    // must not panic when the state is not yet available (`panic = "abort"`
+    // would otherwise kill the process instantly). Fall back to the default
+    // pet; once setup completes, later invocations resolve the real selection.
+    let selected = {
+        let Some(state) = app.try_state::<AppState>() else {
+            return fallback;
+        };
+        state
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .selected_pet
+            .clone()
     };
     let fallback_for_task = fallback.clone();
     match tauri::async_runtime::spawn_blocking(move || {
@@ -269,9 +330,38 @@ pub fn run() {
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
-            std::fs::create_dir_all(data_dir.join("custom-pets"))?;
             let settings_store = SettingsStore::new(data_dir.join("settings.json"));
             let settings = settings_store.load();
+            // Resolve the custom-pets directory: use the user-configured path if
+            // set, otherwise default to a "custom-pets" folder next to the exe
+            // (more discoverable than the AppData location).  If the exe-adjacent
+            // path cannot be created (e.g. C:\Program Files with strict ACLs),
+            // fall back to the data dir so the app still works.
+            let custom_pets_dir = if let Some(dir) = settings.custom_pets_dir.as_ref() {
+                let path = PathBuf::from(dir);
+                let _ = std::fs::create_dir_all(&path);
+                path
+            } else {
+                let default_dir = exe_dir().join("custom-pets");
+                if std::fs::create_dir_all(&default_dir).is_ok() {
+                    // Migrate pets from the old AppData location if the new dir
+                    // is empty and the old one exists.
+                    let old_dir = data_dir.join("custom-pets");
+                    if old_dir.is_dir() {
+                        let has_pets = std::fs::read_dir(&default_dir)
+                            .map(|mut entries| entries.next().is_some())
+                            .unwrap_or(false);
+                        if !has_pets {
+                            let _ = std::fs::rename(&old_dir, &default_dir);
+                        }
+                    }
+                    default_dir
+                } else {
+                    let fallback = data_dir.join("custom-pets");
+                    let _ = std::fs::create_dir_all(&fallback);
+                    fallback
+                }
+            };
             let catalog = load_cached_catalog(&data_dir);
             let reminder_runtime = Arc::new(reminders::ReminderRuntime::default());
             reminder_runtime.initialize(&settings.reminders);
@@ -280,6 +370,7 @@ pub fn run() {
                 settings_store,
                 catalog: RwLock::new(catalog),
                 data_dir,
+                custom_pets_dir: RwLock::new(custom_pets_dir),
                 client: reqwest::Client::builder()
                     .user_agent(format!("DeskMate/{APP_VERSION}"))
                     .connect_timeout(Duration::from_secs(10))
@@ -351,6 +442,7 @@ pub fn run() {
             pet_select,
             pet_local_refresh,
             pet_local_folder_open,
+            custom_pets_dir_pick,
             pet_current,
             pet_recall,
             project_url_open,
@@ -675,7 +767,18 @@ fn select_pet(app: &tauri::AppHandle, id: &str, version: &str) -> Result<(), Str
 }
 
 fn custom_pets_root(app: &tauri::AppHandle) -> PathBuf {
-    app.state::<AppState>().data_dir.join("custom-pets")
+    app.state::<AppState>()
+        .custom_pets_dir
+        .read()
+        .expect("custom_pets_dir lock poisoned")
+        .clone()
+}
+
+fn exe_dir() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 fn resolve_pet_payload(

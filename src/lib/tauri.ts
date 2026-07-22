@@ -72,6 +72,11 @@ export async function petLocalFolderOpen() {
   if (isTauri()) await invoke("pet_local_folder_open");
 }
 
+export async function customPetsDirPick(): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string | null>("custom_pets_dir_pick");
+}
+
 export async function petCurrent(): Promise<PetChangedPayload> {
   if (!isTauri()) {
     return { id: "yanghao", version: "1.0.0", spriteVersionNumber: 2, spritesheetPath: null };

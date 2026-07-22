@@ -5,6 +5,7 @@ import {
   CircleHelp,
   ExternalLink,
   FolderOpen,
+  FolderSearch,
   Github,
   Heart,
   MonitorUp,
@@ -46,6 +47,7 @@ export interface SettingsAppProps {
   localPetErrors?: string[];
   onOpenLocalPetFolder?: () => void;
   onLocalPetRefresh?: () => void;
+  onCustomPetsDirPick?: () => Promise<string | null>;
   onOpenPetGallery?: () => void;
   onOpenProject?: () => void;
   onShareProject?: () => Promise<"shared" | "copied" | "cancelled">;
@@ -76,6 +78,7 @@ export function SettingsApp({
   localPetErrors = [],
   onOpenLocalPetFolder,
   onLocalPetRefresh,
+  onCustomPetsDirPick,
   onOpenPetGallery,
   onOpenProject,
   onShareProject,
@@ -152,6 +155,7 @@ export function SettingsApp({
             localPetErrors={localPetErrors}
             onOpenLocalPetFolder={onOpenLocalPetFolder}
             onLocalPetRefresh={onLocalPetRefresh}
+            onCustomPetsDirPick={onCustomPetsDirPick}
             onOpenPetGallery={onOpenPetGallery}
           />
         )}
@@ -369,6 +373,7 @@ function PetLibrary({
   localPetErrors,
   onOpenLocalPetFolder,
   onLocalPetRefresh,
+  onCustomPetsDirPick,
   onOpenPetGallery,
 }: {
   catalog?: PetCatalogV1 | null;
@@ -382,6 +387,7 @@ function PetLibrary({
   localPetErrors: string[];
   onOpenLocalPetFolder?: () => void;
   onLocalPetRefresh?: () => void;
+  onCustomPetsDirPick?: () => Promise<string | null>;
   onOpenPetGallery?: () => void;
 }) {
   const pets = catalog?.pets ?? [];
@@ -421,6 +427,12 @@ function PetLibrary({
             <RefreshCw size={15} />
             重新扫描
           </button>
+          {onCustomPetsDirPick && (
+            <button className="button button-secondary" onClick={() => void onCustomPetsDirPick()}>
+              <FolderSearch size={15} />
+              更改文件夹
+            </button>
+          )}
         </div>
       </section>
       {localPetErrors.length > 0 && (

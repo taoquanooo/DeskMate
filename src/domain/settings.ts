@@ -14,6 +14,7 @@ export interface SettingsV1 {
     clickThrough: boolean;
   };
   reminders: Reminder[];
+  customPetsDir?: string | null;
 }
 
 export const DEFAULT_SETTINGS: SettingsV1 = {
@@ -30,6 +31,7 @@ export const DEFAULT_SETTINGS: SettingsV1 = {
     clickThrough: false,
   },
   reminders: createDefaultReminders(),
+  customPetsDir: null,
 };
 
 export function mergeSettings(value: unknown): SettingsV1 {
@@ -56,6 +58,10 @@ export function mergeSettings(value: unknown): SettingsV1 {
     reminders: Array.isArray(value.reminders)
       ? sanitizeReminders(value.reminders, defaults.reminders)
       : defaults.reminders,
+    customPetsDir:
+      typeof value.customPetsDir === "string" && value.customPetsDir.trim() !== ""
+        ? value.customPetsDir
+        : null,
   };
 }
 
