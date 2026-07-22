@@ -4,6 +4,27 @@ pub struct Point {
     pub y: f64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DragDirection {
+    Left,
+    Right,
+}
+
+pub fn drag_direction(
+    previous: Option<Point>,
+    current: Point,
+    threshold: f64,
+) -> Option<DragDirection> {
+    let delta = current.x - previous?.x;
+    if delta > threshold {
+        Some(DragDirection::Right)
+    } else if delta < -threshold {
+        Some(DragDirection::Left)
+    } else {
+        None
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WorkArea {
     pub left: i32,
@@ -57,7 +78,25 @@ pub fn step_toward(from: Point, to: Point, pixels: f64) -> Point {
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_to_work_area, resize_around_bottom_center, step_toward, Point, WorkArea};
+    use super::{
+        clamp_to_work_area, drag_direction, resize_around_bottom_center, step_toward,
+        DragDirection, Point, WorkArea,
+    };
+
+    #[test]
+    fn classifies_horizontal_drag_direction_and_ignores_jitter() {
+        let from = Some(Point { x: 100.0, y: 50.0 });
+        assert_eq!(
+            drag_direction(from, Point { x: 104.0, y: 90.0 }, 2.0),
+            Some(DragDirection::Right)
+        );
+        assert_eq!(
+            drag_direction(from, Point { x: 96.0, y: 10.0 }, 2.0),
+            Some(DragDirection::Left)
+        );
+        assert_eq!(drag_direction(from, Point { x: 101.0, y: 90.0 }, 2.0), None);
+        assert_eq!(drag_direction(None, Point { x: 104.0, y: 90.0 }, 2.0), None);
+    }
 
     #[test]
     fn clamps_inside_negative_coordinate_work_area() {

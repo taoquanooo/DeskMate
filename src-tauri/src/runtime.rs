@@ -1,5 +1,5 @@
 use crate::{
-    motion::{clamp_to_work_area, step_toward, Point, WorkArea},
+    motion::{clamp_to_work_area, drag_direction, step_toward, DragDirection, Point, WorkArea},
     AppState,
 };
 use rand::Rng;
@@ -23,6 +23,10 @@ pub fn start_motion_engine(app: tauri::AppHandle) {
         let mut target: Option<Point> = None;
         let mut idle_until: Option<Instant> = None;
         let mut last_fullscreen = false;
+        let mut last_drag_position = None;
+        let mut drag_animation = None;
+        let mut drag_moved = false;
+        let mut was_dragging = false;
         loop {
             tokio::time::sleep(Duration::from_millis(33)).await;
             let Some(window) = app.get_webview_window("pet") else {
@@ -54,11 +58,50 @@ pub fn start_motion_engine(app: tauri::AppHandle) {
                 continue;
             }
             let _ = window.show();
-            if state.dragging.load(Ordering::Relaxed) || state.interacting.load(Ordering::Relaxed) {
+            let dragging = state.dragging.load(Ordering::Relaxed);
+            if dragging {
                 state.moving.store(false, Ordering::Relaxed);
-                if state.dragging.load(Ordering::Relaxed) {
-                    target = None;
+                target = None;
+                if !settings.pet.roaming_enabled {
+                    if let Ok(position) = window.outer_position() {
+                        let current = Point {
+                            x: position.x as f64,
+                            y: position.y as f64,
+                        };
+                        if let Some(direction) = drag_direction(last_drag_position, current, 2.0) {
+                            if !drag_moved {
+                                drag_moved = true;
+                                let _ = app.emit("runtime://drag-moved", ());
+                            }
+                            if drag_animation != Some(direction) {
+                                drag_animation = Some(direction);
+                                let _ = app.emit(
+                                    "runtime://drag-animation",
+                                    AnimationPayload {
+                                        state: match direction {
+                                            DragDirection::Left => "running-left",
+                                            DragDirection::Right => "running-right",
+                                        },
+                                        direction_degrees: None,
+                                    },
+                                );
+                            }
+                        }
+                        last_drag_position = Some(current);
+                    }
                 }
+                was_dragging = true;
+                continue;
+            }
+            if was_dragging {
+                was_dragging = false;
+                last_drag_position = None;
+                drag_animation = None;
+                drag_moved = false;
+                let _ = app.emit("runtime://drag-ended", ());
+            }
+            if state.interacting.load(Ordering::Relaxed) {
+                state.moving.store(false, Ordering::Relaxed);
                 continue;
             }
             if !settings.pet.roaming_enabled || reduced_motion_enabled() {
