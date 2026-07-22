@@ -34,6 +34,7 @@ export interface LocalPetV1 {
   description: string;
   folderName: string;
   spriteVersionNumber: 1 | 2;
+  spritesheetPath: string;
 }
 
 export interface LocalPetScanV1 {

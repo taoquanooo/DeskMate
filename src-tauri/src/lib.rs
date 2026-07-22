@@ -159,7 +159,19 @@ async fn pet_local_refresh(app: tauri::AppHandle) -> LocalPetScanV1 {
         }
     };
     match tauri::async_runtime::spawn_blocking(move || pets::scan_local_pets(&root)).await {
-        Ok(scan) => scan,
+        Ok(mut scan) => {
+            let mut authorized = Vec::with_capacity(scan.pets.len());
+            for pet in scan.pets {
+                match app.asset_protocol_scope().allow_file(&pet.spritesheet_path) {
+                    Ok(()) => authorized.push(pet),
+                    Err(error) => scan
+                        .errors
+                        .push(format!("{}：无法授权预览图集（{error}）", pet.folder_name)),
+                }
+            }
+            scan.pets = authorized;
+            scan
+        }
         Err(_) => LocalPetScanV1 {
             folder_path: String::new(),
             pets: Vec::new(),

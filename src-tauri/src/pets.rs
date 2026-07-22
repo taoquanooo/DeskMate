@@ -80,6 +80,7 @@ pub struct LocalPetV1 {
     pub description: String,
     pub folder_name: String,
     pub sprite_version_number: u8,
+    pub spritesheet_path: PathBuf,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -172,6 +173,7 @@ pub fn scan_local_pets(root: &Path) -> LocalPetScanV1 {
             description: manifest.description,
             folder_name,
             sprite_version_number: manifest.sprite_version_number,
+            spritesheet_path: entry.path().join("spritesheet.webp"),
         });
     }
     scan.pets.retain(|pet| !duplicate_ids.contains(&pet.id));
@@ -586,6 +588,10 @@ mod tests {
         assert_eq!(scan.pets[0].id, "studio-cat");
         assert_eq!(scan.pets[0].version, "local");
         assert_eq!(scan.pets[0].sprite_version_number, 2);
+        assert_eq!(
+            scan.pets[0].spritesheet_path,
+            valid.join("spritesheet.webp")
+        );
         assert!(scan.errors.iter().any(|error| error.contains("broken-pet")));
     }
 
