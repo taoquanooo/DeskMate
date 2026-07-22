@@ -36,8 +36,12 @@ export function PetThumbnail({
   useEffect(() => {
     let mounted = true;
     const image = new Image();
+    setFailedAtlasUrl((failedUrl) => (failedUrl === requestedAtlas.spritesheetUrl ? failedUrl : null));
     image.onload = () => {
-      if (mounted) setDisplayedAtlas(requestedAtlas);
+      if (mounted) {
+        setDisplayedAtlas(requestedAtlas);
+        setFailedAtlasUrl((failedUrl) => (failedUrl === requestedAtlas.spritesheetUrl ? null : failedUrl));
+      }
     };
     image.onerror = () => {
       if (mounted) setFailedAtlasUrl(requestedAtlas.spritesheetUrl);
@@ -48,6 +52,10 @@ export function PetThumbnail({
     };
   }, [requestedAtlas]);
 
+  useEffect(() => {
+    setFailedPreviewUrl((failedUrl) => (failedUrl === previewUrl ? failedUrl : null));
+  }, [previewUrl]);
+
   if (previewUrl) {
     if (failedPreviewUrl === previewUrl) return <UnavailableThumbnail label={label} />;
     return (
@@ -55,6 +63,7 @@ export function PetThumbnail({
         alt={label}
         className="pet-thumbnail"
         onError={() => setFailedPreviewUrl(previewUrl)}
+        onLoad={() => setFailedPreviewUrl((failedUrl) => (failedUrl === previewUrl ? null : failedUrl))}
         src={previewUrl}
       />
     );

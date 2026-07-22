@@ -70,3 +70,13 @@ test("the pet webview fills the resized native window", async () => {
   assert.match(rule, /place-items:\s*end center/);
   assert.doesNotMatch(rule, /width:\s*192px/);
 });
+
+test("pet-library thumbnails clip a fixed frame from the bottom center", async () => {
+  const styles = await readFile(stylesUrl, "utf8");
+  const rule = styles.match(/\.pet-thumbnail\s*\{([^}]*)\}/)?.[1] ?? "";
+
+  assert.match(rule, /width:\s*92px/);
+  assert.match(rule, /height:\s*92px/);
+  assert.match(rule, /overflow:\s*hidden/);
+  assert.match(rule, /place-items:\s*end center/);
+});

@@ -44,7 +44,7 @@ button {
   height: 92px;
   flex: 0 0 92px;
   display: grid;
-  place-items: center;
+  place-items: end center;
   overflow: hidden;
   border-radius: 14px;
   background: var(--accent-soft);
