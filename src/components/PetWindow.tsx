@@ -49,6 +49,7 @@ export function PetWindow() {
   const interactionTimer = useRef<number | undefined>(undefined);
   const interactionActive = useRef(false);
   const activeInteraction = useRef<{ state: InteractionState; startedAt: number } | undefined>(undefined);
+  const dragActive = useRef(false);
   const dragMoved = useRef(false);
   const resumeAnimation = useRef<{
     state: AnimationState;
@@ -108,6 +109,7 @@ export function PetWindow() {
     track(
       listenEvent<RuntimeAnimationPayload>("runtime://drag-animation", (payload) => {
         if (!VALID_STATES.has(payload.state as AnimationState)) return;
+        dragActive.current = true;
         setAnimation({
           state: payload.state as AnimationState,
           directionDegrees: payload.directionDegrees,
@@ -123,6 +125,7 @@ export function PetWindow() {
     );
     track(
       listenEvent("runtime://drag-ended", () => {
+        dragActive.current = false;
         if (interactionActive.current && activeInteraction.current) {
           setAnimation(activeInteraction.current);
           return;
@@ -147,6 +150,7 @@ export function PetWindow() {
       if (interactionActive.current) {
         interactionActive.current = false;
         activeInteraction.current = undefined;
+        dragActive.current = false;
         void emitEvent("runtime://interaction", false);
       }
     };
@@ -162,7 +166,9 @@ export function PetWindow() {
     interactionTimer.current = window.setTimeout(() => {
       interactionActive.current = false;
       activeInteraction.current = undefined;
-      setAnimation({ ...resumeAnimation.current, startedAt: performance.now() });
+      if (!dragActive.current) {
+        setAnimation({ ...resumeAnimation.current, startedAt: performance.now() });
+      }
       void emitEvent("runtime://interaction", false);
     }, duration);
   };
