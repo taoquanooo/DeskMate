@@ -8,3 +8,5 @@ pnpm-lock.yaml
 *.png
 *.ico
 *.icns
+.superpowers
+docs/superpowers

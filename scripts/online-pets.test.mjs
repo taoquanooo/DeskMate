@@ -76,10 +76,7 @@ test("builds the official online-pet catalog and release packages", async () => 
       assert.equal(pet.sha256, createHash("sha256").update(packageBytes).digest("hex"));
       assert.equal(pet.sizeBytes, packageBytes.length);
       assert.ok(pet.sizeBytes > 0);
-      assert.equal(
-        pet.previewUrl,
-        "https://taoquanooo.github.io/DeskMate/pet-placeholder.svg",
-      );
+      assert.equal(pet.previewUrl, "https://taoquanooo.github.io/DeskMate/pet-placeholder.svg");
     }
 
     for (const id of expectedIds) {
@@ -99,21 +96,32 @@ test("rejects a declared sprite version that does not match the atlas", async ()
       new URL("../online-pets/blue-guga/spritesheet.webp", import.meta.url),
       join(petDir, "spritesheet.webp"),
     );
-    await writeFile(join(petDir, "pet.json"), JSON.stringify({
-      id: "mismatch-pet",
-      displayName: "Mismatch",
-      description: "v1 atlas with v2 declared",
-      spriteVersionNumber: 2,
-      spritesheetPath: "spritesheet.webp",
-    }));
+    await writeFile(
+      join(petDir, "pet.json"),
+      JSON.stringify({
+        id: "mismatch-pet",
+        displayName: "Mismatch",
+        description: "v1 atlas with v2 declared",
+        spriteVersionNumber: 2,
+        spritesheetPath: "spritesheet.webp",
+      }),
+    );
     const tempOutput = join(tempSource, "output");
-    const result = spawnSync(process.execPath, [
-      "scripts/build-online-pets.mjs",
-      "--source", tempSource,
-      "--output", tempOutput,
-      "--repository", "taoquanooo/DeskMate",
-      "--release-tag", "pets-v1",
-    ], { cwd: repositoryRoot, encoding: "utf8" });
+    const result = spawnSync(
+      process.execPath,
+      [
+        "scripts/build-online-pets.mjs",
+        "--source",
+        tempSource,
+        "--output",
+        tempOutput,
+        "--repository",
+        "taoquanooo/DeskMate",
+        "--release-tag",
+        "pets-v1",
+      ],
+      { cwd: repositoryRoot, encoding: "utf8" },
+    );
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /declared spriteVersionNumber does not match the atlas/);
@@ -131,21 +139,32 @@ test("rejects an explicit null sprite version", async () => {
       new URL("../online-pets/blue-guga/spritesheet.webp", import.meta.url),
       join(petDir, "spritesheet.webp"),
     );
-    await writeFile(join(petDir, "pet.json"), JSON.stringify({
-      id: "null-version-pet",
-      displayName: "Null",
-      description: "explicit null sprite version",
-      spriteVersionNumber: null,
-      spritesheetPath: "spritesheet.webp",
-    }));
+    await writeFile(
+      join(petDir, "pet.json"),
+      JSON.stringify({
+        id: "null-version-pet",
+        displayName: "Null",
+        description: "explicit null sprite version",
+        spriteVersionNumber: null,
+        spritesheetPath: "spritesheet.webp",
+      }),
+    );
     const tempOutput = join(tempSource, "output");
-    const result = spawnSync(process.execPath, [
-      "scripts/build-online-pets.mjs",
-      "--source", tempSource,
-      "--output", tempOutput,
-      "--repository", "taoquanooo/DeskMate",
-      "--release-tag", "pets-v1",
-    ], { cwd: repositoryRoot, encoding: "utf8" });
+    const result = spawnSync(
+      process.execPath,
+      [
+        "scripts/build-online-pets.mjs",
+        "--source",
+        tempSource,
+        "--output",
+        tempOutput,
+        "--repository",
+        "taoquanooo/DeskMate",
+        "--release-tag",
+        "pets-v1",
+      ],
+      { cwd: repositoryRoot, encoding: "utf8" },
+    );
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /spriteVersionNumber must be 1 or 2/);
