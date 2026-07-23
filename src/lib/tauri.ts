@@ -195,7 +195,11 @@ export async function hideCurrentWindow() {
   if (isTauri()) await getCurrentWindow().hide();
 }
 
-export function petAssetUrl(path?: string | null) {
+export function petAssetUrl(path?: string | null, builtInId?: string) {
   if (path?.startsWith("/pets/")) return path;
+  if (!path)
+    return (
+      BUILT_IN_PETS.find((pet) => pet.id === builtInId)?.spritesheetUrl ?? BUILT_IN_PETS[0].spritesheetUrl
+    );
   return path && isTauri() ? convertFileSrc(path) : "/pets/yanghao/spritesheet.webp";
 }
