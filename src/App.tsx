@@ -21,7 +21,7 @@ import {
   openPetDexUrl,
   petLocalFolderOpen,
   petLocalRefresh,
-  petSelect,
+  petSelectionSet,
   openProjectUrl,
   shareProject,
   settingsGet,
@@ -294,12 +294,21 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
           },
         );
       }}
-      onPetSelect={(id, version) =>
-        void petSelect(id, version).then(
-          () => setSettings((current) => (current ? { ...current, selectedPet: { id, version } } : current)),
+      onPetToggle={(id, version, add) => {
+        const current = settings.selectedPets;
+        const next = add
+          ? [...current, { id, version }]
+          : current.filter((pet) => !(pet.id === id && pet.version === version));
+        void petSelectionSet(next).then(
+          (pets) =>
+            setSettings((current) =>
+              current
+                ? { ...current, selectedPets: pets, selectedPet: pets[0] ?? current.selectedPet }
+                : current,
+            ),
           (error) => setCatalogError(`切换宠物失败：${String(error)}`),
-        )
-      }
+        );
+      }}
       onPetUninstall={(id, version) =>
         void petUninstall(id, version).catch((error) => setCatalogError(`删除失败：${String(error)}`))
       }

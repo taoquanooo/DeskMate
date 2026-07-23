@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { gazeAngleFromVector, type AnimationState } from "../domain/animation";
 import {
-  emitEvent,
+  emitWindowFlag,
   listenEvent,
   petAssetUrl,
   petCurrent,
@@ -152,7 +152,7 @@ export function PetWindow() {
         interactionActive.current = false;
         activeInteraction.current = undefined;
         dragActive.current = false;
-        void emitEvent("runtime://interaction", false);
+        void emitWindowFlag("runtime://interaction", false);
       }
     };
   }, []);
@@ -160,7 +160,7 @@ export function PetWindow() {
   const playInteraction = (state: InteractionState, duration: number) => {
     window.clearTimeout(interactionTimer.current);
     interactionActive.current = true;
-    void emitEvent("runtime://interaction", true);
+    void emitWindowFlag("runtime://interaction", true);
     const interaction = { state, startedAt: performance.now() };
     activeInteraction.current = interaction;
     setAnimation(interaction);
@@ -170,7 +170,7 @@ export function PetWindow() {
       if (!dragActive.current) {
         setAnimation({ ...resumeAnimation.current, startedAt: performance.now() });
       }
-      void emitEvent("runtime://interaction", false);
+      void emitWindowFlag("runtime://interaction", false);
     }, duration);
   };
 
@@ -196,7 +196,7 @@ export function PetWindow() {
   };
 
   const handleWindowDrag = async () => {
-    await emitEvent("runtime://dragging", true);
+    await emitWindowFlag("runtime://dragging", true);
     await startWindowDrag();
     // The OS drag continues after startWindowDrag resolves (notably on Windows).
     // The backend clears the dragging flag once the left mouse button is released,

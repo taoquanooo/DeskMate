@@ -55,8 +55,9 @@ describe("PetThumbnail", () => {
       />,
     );
 
+    // Thumbnails render at 42% so the v1 atlas scales down with the frame.
     expect(screen.getByRole("img", { name: "工作室小猫预览" })).toHaveStyle({
-      backgroundSize: "1536px 1872px",
+      backgroundSize: "645.12px 786.24px",
     });
   });
 

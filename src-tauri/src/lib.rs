@@ -8,8 +8,9 @@ mod settings;
 use futures_util::StreamExt;
 use pets::{LocalPetScanV1, PetCatalogEntryV1, PetCatalogV1};
 use serde::Serialize;
-use settings::{SettingsStore, SettingsV1};
+use settings::{SelectedPet, SettingsStore, SettingsV1, MAX_ACTIVE_PETS};
 use std::{
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -28,6 +29,8 @@ const PROJECT_URL: &str = "https://github.com/taoquanooo/DeskMate";
 const PET_GALLERY_URL: &str = "https://codex-pet.org/zh/";
 const PETDEX_URL: &str = "https://petdex.dev/";
 const BUILT_IN_PETS: [(&str, &str, u8); 2] = [("yanghao", "1.0.0", 2), ("lev-neon", "1.0.0", 2)];
+const PETS_RELEASE_TAG: &str = "pets-v1";
+const CATALOG_ASSET_NAME: &str = "catalog.json";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,11 +60,55 @@ pub struct AppState {
     client: reqwest::Client,
     paused: AtomicBool,
     fullscreen: AtomicBool,
-    dragging: AtomicBool,
-    interacting: AtomicBool,
-    moving: AtomicBool,
+    // Per-pet-window flags, keyed by window label ("pet", "pet-2", ...), so
+    // each desktop pet can be dragged or interacted with independently.
+    dragging: Mutex<HashMap<String, bool>>,
+    interacting: Mutex<HashMap<String, bool>>,
+    moving: Mutex<HashMap<String, bool>>,
+    pet_engines: Mutex<HashSet<String>>,
     ready_update: Mutex<Option<ReadyUpdate>>,
     install_lock: tokio::sync::Mutex<()>,
+}
+
+pub(crate) fn window_flag(flags: &Mutex<HashMap<String, bool>>, label: &str) -> bool {
+    flags
+        .lock()
+        .map(|flags| flags.get(label).copied().unwrap_or(false))
+        .unwrap_or(false)
+}
+
+pub(crate) fn set_window_flag(flags: &Mutex<HashMap<String, bool>>, label: &str, value: bool) {
+    if let Ok(mut flags) = flags.lock() {
+        flags.insert(label.to_string(), value);
+    }
+}
+
+pub(crate) fn any_window_flag(flags: &Mutex<HashMap<String, bool>>) -> bool {
+    flags
+        .lock()
+        .map(|flags| flags.values().any(|value| *value))
+        .unwrap_or(false)
+}
+
+/// Window label for the pet slot at `index` (the first pet uses the static
+/// "pet" window declared in tauri.conf.json).
+fn pet_window_label(index: usize) -> String {
+    if index == 0 {
+        "pet".to_string()
+    } else {
+        format!("pet-{}", index + 1)
+    }
+}
+
+/// Inverse of `pet_window_label`; returns None for non-pet windows.
+fn pet_window_index(label: &str) -> Option<usize> {
+    if label == "pet" {
+        return Some(0);
+    }
+    let number: usize = label.strip_prefix("pet-")?.parse().ok()?;
+    // "pet-2" is slot 1, "pet-3" is slot 2, ... ("pet-1" is not a valid slot:
+    // the first pet always uses the static "pet" window).
+    number.checked_sub(1).filter(|index| *index >= 1)
 }
 
 #[derive(Clone)]
@@ -88,6 +135,12 @@ struct PetChangedPayload {
     sprite_version_number: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
     spritesheet_path: Option<PathBuf>,
+}
+
+#[derive(serde::Deserialize)]
+struct WindowFlagPayload {
+    label: String,
+    value: bool,
 }
 
 #[tauri::command]
@@ -205,29 +258,35 @@ async fn pet_uninstall(app: tauri::AppHandle, id: String, version: String) -> Re
     })
     .await
     .map_err(|error| format!("删除任务失败：{error}"))??;
-    // If the deleted pet was the current selection, fall back to the default.
-    {
+    // If the deleted pet was on the desktop, drop it from the selection; when
+    // nothing is left, fall back to the default companion.
+    let selection_changed = {
         let mut settings = state
             .settings
             .lock()
             .map_err(|_| "settings lock poisoned")?;
-        if settings.selected_pet.id == id && settings.selected_pet.version == version {
-            settings.selected_pet.id = "yanghao".into();
-            settings.selected_pet.version = "1.0.0".into();
+        let before = settings.selected_pets.clone();
+        settings
+            .selected_pets
+            .retain(|pet| !(pet.id == id && pet.version == version));
+        if settings.selected_pets.is_empty() {
+            settings.selected_pets.push(SelectedPet {
+                id: "yanghao".into(),
+                version: "1.0.0".into(),
+            });
+        }
+        settings.selected_pet = settings.selected_pets[0].clone();
+        let changed = settings.selected_pets != before;
+        if changed {
             state
                 .settings_store
                 .save(&settings)
                 .map_err(|error| error.to_string())?;
-            let _ = app.emit(
-                "pet://changed",
-                PetChangedPayload {
-                    id: "yanghao".into(),
-                    version: "1.0.0".into(),
-                    sprite_version_number: 2,
-                    spritesheet_path: None,
-                },
-            );
         }
+        changed
+    };
+    if selection_changed {
+        sync_pet_windows(&app)?;
     }
     let _ = app.emit(
         "pet://uninstalled",
@@ -281,8 +340,48 @@ fn scan_installed_pets(pets_root: &Path) -> Result<Vec<InstalledPetV1>, String> 
 }
 
 #[tauri::command]
-fn pet_select(app: tauri::AppHandle, id: String, version: String) -> Result<(), String> {
-    select_pet(&app, &id, &version)
+fn pet_selection_set(
+    app: tauri::AppHandle,
+    pets: Vec<SelectedPet>,
+) -> Result<Vec<SelectedPet>, String> {
+    let mut deduped: Vec<SelectedPet> = Vec::new();
+    for pet in pets {
+        if pet.id.trim().is_empty() || pet.version.trim().is_empty() {
+            return Err("桌宠选择包含无效的 id 或版本".into());
+        }
+        if deduped
+            .iter()
+            .any(|existing| existing.id == pet.id && existing.version == pet.version)
+        {
+            continue;
+        }
+        // Resolve every pet before committing so a missing package can't
+        // leave the desktop with a half-applied selection.
+        resolve_pet_payload(&app, &pet.id, &pet.version)
+            .map_err(|error| format!("{}@{}：{error}", pet.id, pet.version))?;
+        deduped.push(pet);
+    }
+    if deduped.is_empty() {
+        return Err("至少保留一只桌宠".into());
+    }
+    if deduped.len() > MAX_ACTIVE_PETS {
+        return Err(format!("最多同时显示 {MAX_ACTIVE_PETS} 只桌宠"));
+    }
+    {
+        let state = app.state::<AppState>();
+        let mut settings = state
+            .settings
+            .lock()
+            .map_err(|_| "settings lock poisoned")?;
+        settings.selected_pets = deduped.clone();
+        settings.selected_pet = deduped[0].clone();
+        state
+            .settings_store
+            .save(&settings)
+            .map_err(|error| error.to_string())?;
+    }
+    sync_pet_windows(&app)?;
+    Ok(deduped)
 }
 
 #[tauri::command]
@@ -372,7 +471,7 @@ async fn custom_pets_dir_pick(app: tauri::AppHandle) -> Result<Option<String>, S
 }
 
 #[tauri::command]
-async fn pet_current(app: tauri::AppHandle) -> PetChangedPayload {
+async fn pet_current(app: tauri::AppHandle, window: tauri::Window) -> PetChangedPayload {
     let fallback = PetChangedPayload {
         id: "yanghao".into(),
         version: "1.0.0".into(),
@@ -389,13 +488,16 @@ async fn pet_current(app: tauri::AppHandle) -> PetChangedPayload {
         let Some(state) = app.try_state::<AppState>() else {
             return fallback;
         };
-        let selected = state
-            .settings
-            .lock()
-            .expect("settings poisoned")
-            .selected_pet
-            .clone();
-        selected
+        let settings = state.settings.lock().expect("settings poisoned").clone();
+        // Each pet window renders its own slot of the selection; non-pet
+        // windows (e.g. the settings preview) show the primary pet.
+        let index = pet_window_index(window.label()).unwrap_or(0);
+        settings
+            .selected_pets
+            .get(index)
+            .or_else(|| settings.selected_pets.first())
+            .cloned()
+            .unwrap_or(settings.selected_pet)
     };
     let fallback_for_task = fallback.clone();
     match tauri::async_runtime::spawn_blocking(move || {
@@ -549,29 +651,32 @@ pub fn run() {
                     .build()?,
                 paused: AtomicBool::new(false),
                 fullscreen: AtomicBool::new(false),
-                dragging: AtomicBool::new(false),
-                interacting: AtomicBool::new(false),
-                moving: AtomicBool::new(false),
+                dragging: Mutex::new(HashMap::new()),
+                interacting: Mutex::new(HashMap::new()),
+                moving: Mutex::new(HashMap::new()),
+                pet_engines: Mutex::new(HashSet::new()),
                 ready_update: Mutex::new(None),
                 install_lock: tokio::sync::Mutex::new(()),
             });
 
             let drag_app = app.handle().clone();
             app.listen("runtime://dragging", move |event| {
-                if let Ok(dragging) = serde_json::from_str::<bool>(event.payload()) {
-                    drag_app
-                        .state::<AppState>()
-                        .dragging
-                        .store(dragging, Ordering::Relaxed);
+                if let Ok(payload) = serde_json::from_str::<WindowFlagPayload>(event.payload()) {
+                    set_window_flag(
+                        &drag_app.state::<AppState>().dragging,
+                        &payload.label,
+                        payload.value,
+                    );
                 }
             });
             let interaction_app = app.handle().clone();
             app.listen("runtime://interaction", move |event| {
-                if let Ok(interacting) = serde_json::from_str::<bool>(event.payload()) {
-                    interaction_app
-                        .state::<AppState>()
-                        .interacting
-                        .store(interacting, Ordering::Relaxed);
+                if let Ok(payload) = serde_json::from_str::<WindowFlagPayload>(event.payload()) {
+                    set_window_flag(
+                        &interaction_app.state::<AppState>().interacting,
+                        &payload.label,
+                        payload.value,
+                    );
                 }
             });
 
@@ -586,14 +691,11 @@ pub fn run() {
             }
             create_tray(app)?;
             apply_window_settings(app.handle(), &settings);
-            // Emit the saved pet so the pet window picks it up even if its
-            // initial petCurrent() call raced ahead of app.manage(AppState).
-            if let Ok(payload) = resolve_pet_payload(
-                app.handle(),
-                &settings.selected_pet.id,
-                &settings.selected_pet.version,
-            ) {
-                let _ = app.handle().emit("pet://changed", payload);
+            // Sync one window per saved pet and emit each window its payload so
+            // the pet windows pick up the saved selection even if their initial
+            // petCurrent() calls raced ahead of app.manage(AppState).
+            if let Err(error) = sync_pet_windows(app.handle()) {
+                eprintln!("failed to sync pet windows: {error}");
             }
             if let Some(settings_window) = app.get_webview_window("settings") {
                 let window = settings_window.clone();
@@ -620,7 +722,7 @@ pub fn run() {
             pet_install,
             installed_pets,
             pet_uninstall,
-            pet_select,
+            pet_selection_set,
             pet_local_refresh,
             pet_local_folder_open,
             custom_pets_dir_pick,
@@ -638,50 +740,94 @@ pub fn run() {
         .expect("error while running DeskMate");
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{github_release_download_parts, repository_slug};
+
+    #[test]
+    fn parses_github_release_download_urls() {
+        let url = url::Url::parse(
+            "https://github.com/taoquanooo/DeskMate/releases/download/pets-v1/lansha-1.0.0.zip",
+        )
+        .unwrap();
+        let (repository, tag, asset) = github_release_download_parts(&url).unwrap();
+        assert_eq!(repository, "taoquanooo/DeskMate");
+        assert_eq!(tag, "pets-v1");
+        assert_eq!(asset, "lansha-1.0.0.zip");
+    }
+
+    #[test]
+    fn rejects_non_release_download_urls() {
+        let url = url::Url::parse("https://example.com/releases/download/pets-v1/x.zip").unwrap();
+        assert!(github_release_download_parts(&url).is_none());
+        let url = url::Url::parse("https://github.com/taoquanooo/DeskMate").unwrap();
+        assert!(github_release_download_parts(&url).is_none());
+    }
+
+    #[test]
+    fn derives_repository_slug_from_project_url() {
+        assert_eq!(repository_slug(), "taoquanooo/DeskMate");
+    }
+
+    #[test]
+    fn pet_window_labels_round_trip() {
+        assert_eq!(super::pet_window_label(0), "pet");
+        assert_eq!(super::pet_window_label(1), "pet-2");
+        assert_eq!(super::pet_window_label(3), "pet-4");
+        assert_eq!(super::pet_window_index("pet"), Some(0));
+        assert_eq!(super::pet_window_index("pet-2"), Some(1));
+        assert_eq!(super::pet_window_index("pet-4"), Some(3));
+        assert_eq!(super::pet_window_index("pet-1"), None);
+        assert_eq!(super::pet_window_index("settings"), None);
+    }
+}
+
 fn apply_window_settings(app: &tauri::AppHandle, settings: &SettingsV1) {
-    let Some(pet) = app.get_webview_window("pet") else {
-        return;
-    };
-    let _ = pet.set_always_on_top(settings.pet.always_on_top);
-    let _ = pet.set_ignore_cursor_events(settings.pet.click_through);
-    let reposition = pet
-        .outer_position()
-        .ok()
-        .zip(pet.outer_size().ok())
-        .zip(pet.current_monitor().ok().flatten())
-        .map(|((position, old_size), monitor)| {
-            let scale_factor = monitor.scale_factor();
-            // Add a small padding so the sprite is never clipped by the
-            // window's non-client area at extreme scales.
-            let new_width = ((192.0 * settings.pet.scale + 6.0) * scale_factor).round() as i32;
-            let new_height = ((208.0 * settings.pet.scale + 6.0) * scale_factor).round() as i32;
-            let work_area = monitor.work_area();
-            motion::resize_around_bottom_center(
-                motion::Point {
-                    x: position.x as f64,
-                    y: position.y as f64,
-                },
-                old_size.width as i32,
-                old_size.height as i32,
-                new_width,
-                new_height,
-                motion::WorkArea {
-                    left: work_area.position.x,
-                    top: work_area.position.y,
-                    right: work_area.position.x + work_area.size.width as i32,
-                    bottom: work_area.position.y + work_area.size.height as i32,
-                },
-            )
-        });
-    let _ = pet.set_size(tauri::LogicalSize::new(
-        192.0 * settings.pet.scale + 6.0,
-        208.0 * settings.pet.scale + 6.0,
-    ));
-    if let Some(position) = reposition {
-        let _ = pet.set_position(tauri::PhysicalPosition::new(
-            position.x.round() as i32,
-            position.y.round() as i32,
+    for (label, pet) in app.webview_windows() {
+        if pet_window_index(&label).is_none() {
+            continue;
+        }
+        let _ = pet.set_always_on_top(settings.pet.always_on_top);
+        let _ = pet.set_ignore_cursor_events(settings.pet.click_through);
+        let reposition = pet
+            .outer_position()
+            .ok()
+            .zip(pet.outer_size().ok())
+            .zip(pet.current_monitor().ok().flatten())
+            .map(|((position, old_size), monitor)| {
+                let scale_factor = monitor.scale_factor();
+                // Add a small padding so the sprite is never clipped by the
+                // window's non-client area at extreme scales.
+                let new_width = ((192.0 * settings.pet.scale + 6.0) * scale_factor).round() as i32;
+                let new_height = ((208.0 * settings.pet.scale + 6.0) * scale_factor).round() as i32;
+                let work_area = monitor.work_area();
+                motion::resize_around_bottom_center(
+                    motion::Point {
+                        x: position.x as f64,
+                        y: position.y as f64,
+                    },
+                    old_size.width as i32,
+                    old_size.height as i32,
+                    new_width,
+                    new_height,
+                    motion::WorkArea {
+                        left: work_area.position.x,
+                        top: work_area.position.y,
+                        right: work_area.position.x + work_area.size.width as i32,
+                        bottom: work_area.position.y + work_area.size.height as i32,
+                    },
+                )
+            });
+        let _ = pet.set_size(tauri::LogicalSize::new(
+            192.0 * settings.pet.scale + 6.0,
+            208.0 * settings.pet.scale + 6.0,
         ));
+        if let Some(position) = reposition {
+            let _ = pet.set_position(tauri::PhysicalPosition::new(
+                position.x.round() as i32,
+                position.y.round() as i32,
+            ));
+        }
     }
     let _ = app.emit("settings://scale", settings.pet.scale);
 }
@@ -692,10 +838,12 @@ fn set_click_through(app: &tauri::AppHandle, enabled: bool) -> Result<(), String
         .settings
         .lock()
         .map_err(|_| "settings lock poisoned")?;
-    app.get_webview_window("pet")
-        .ok_or("pet window missing")?
-        .set_ignore_cursor_events(enabled)
-        .map_err(|error| error.to_string())?;
+    for (label, pet) in app.webview_windows() {
+        if pet_window_index(&label).is_some() {
+            pet.set_ignore_cursor_events(enabled)
+                .map_err(|error| error.to_string())?;
+        }
+    }
     settings.pet.click_through = enabled;
     state
         .settings_store
@@ -747,7 +895,10 @@ fn create_tray(app: &mut tauri::App) -> tauri::Result<()> {
             "pause" => {
                 let state = app.state::<AppState>();
                 let paused = !state.paused.fetch_xor(true, Ordering::Relaxed);
-                if let Some(pet) = app.get_webview_window("pet") {
+                for (label, pet) in app.webview_windows() {
+                    if pet_window_index(&label).is_none() {
+                        continue;
+                    }
                     if paused {
                         let _ = pet.hide();
                     } else {
@@ -821,7 +972,7 @@ fn start_online_refreshes(app: tauri::AppHandle) {
         tokio::time::sleep(Duration::from_secs(20)).await;
         loop {
             if refresh_catalog(&catalog_app).await.is_ok() {
-                let _ = auto_update_selected_pet(&catalog_app).await;
+                let _ = auto_update_selected_pets(&catalog_app).await;
             }
             tokio::time::sleep(Duration::from_secs(6 * 60 * 60)).await;
         }
@@ -840,41 +991,176 @@ fn start_online_refreshes(app: tauri::AppHandle) {
 }
 
 async fn refresh_catalog(app: &tauri::AppHandle) -> Result<PetCatalogV1, String> {
-    let url = catalog_url().ok_or("online catalog is not configured for this build")?;
-    let state = app.state::<AppState>();
-    let response = state
-        .client
-        .get(url)
-        .send()
-        .await
-        .map_err(|error| error.to_string())?;
-    if !response.status().is_success() {
-        return Err(format!("catalog returned {}", response.status()));
-    }
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_CATALOG_BYTES as u64)
-    {
-        return Err("catalog is too large".into());
-    }
-    let mut stream = response.bytes_stream();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|error| error.to_string())?;
-        if bytes.len() + chunk.len() > MAX_CATALOG_BYTES {
-            return Err("catalog is too large".into());
-        }
-        bytes.extend_from_slice(&chunk);
-    }
+    let bytes = fetch_catalog_bytes(app).await?;
     let catalog: PetCatalogV1 =
         serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
     let app_version = semver::Version::parse(APP_VERSION).map_err(|error| error.to_string())?;
     pets::validate_catalog(&catalog, &app_version)?;
+    let state = app.state::<AppState>();
     SettingsStore::new(state.data_dir.join("catalog-v1.json"))
         .save_value(&serde_json::to_value(&catalog).map_err(|error| error.to_string())?)
         .map_err(|error| error.to_string())?;
     *state.catalog.write().map_err(|_| "catalog lock poisoned")? = Some(catalog.clone());
     Ok(catalog)
+}
+
+async fn fetch_catalog_bytes(app: &tauri::AppHandle) -> Result<Vec<u8>, String> {
+    let client = app.state::<AppState>().client.clone();
+    if let Some(url) = catalog_url() {
+        match fetch_limited(&client, url, MAX_CATALOG_BYTES, "catalog").await {
+            Ok(bytes) => return Ok(bytes),
+            // The Pages-hosted catalog is unreachable from some networks
+            // (e.g. *.github.io is blocked in mainland China), so fall through
+            // to the release-asset mirror instead of failing outright.
+            Err(error) => eprintln!("catalog fetch from primary URL failed: {error}"),
+        }
+    }
+    fetch_release_asset_bytes(
+        app,
+        repository_slug(),
+        PETS_RELEASE_TAG,
+        CATALOG_ASSET_NAME,
+        MAX_CATALOG_BYTES,
+        "catalog",
+    )
+    .await
+}
+
+async fn fetch_limited(
+    client: &reqwest::Client,
+    url: url::Url,
+    max_bytes: usize,
+    label: &str,
+) -> Result<Vec<u8>, String> {
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("{label} returned {}", response.status()));
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > max_bytes as u64)
+    {
+        return Err(format!("{label} is too large"));
+    }
+    let mut stream = response.bytes_stream();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| error.to_string())?;
+        if bytes.len() + chunk.len() > max_bytes {
+            return Err(format!("{label} is too large"));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
+#[derive(serde::Deserialize)]
+struct GithubReleaseAsset {
+    name: String,
+    url: String,
+}
+
+#[derive(serde::Deserialize)]
+struct GithubRelease {
+    assets: Vec<GithubReleaseAsset>,
+}
+
+/// Resolve a GitHub Release asset to its API download URL. The API stays
+/// reachable where github.com itself is blocked, and serves the same immutable
+/// release bytes (integrity is still verified against the catalog SHA-256).
+async fn resolve_release_asset_url(
+    client: &reqwest::Client,
+    repository: &str,
+    tag: &str,
+    asset_name: &str,
+) -> Result<url::Url, String> {
+    let release: GithubRelease = client
+        .get(format!(
+            "https://api.github.com/repos/{repository}/releases/tags/{tag}"
+        ))
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json()
+        .await
+        .map_err(|error| error.to_string())?;
+    let asset = release
+        .assets
+        .into_iter()
+        .find(|asset| asset.name == asset_name)
+        .ok_or_else(|| format!("release {tag} has no asset named {asset_name}"))?;
+    let url = url::Url::parse(&asset.url).map_err(|error| error.to_string())?;
+    if url.scheme() != "https" || url.host_str() != Some("api.github.com") {
+        return Err("release asset API URL must be api.github.com HTTPS".into());
+    }
+    Ok(url)
+}
+
+async fn fetch_release_asset_bytes(
+    app: &tauri::AppHandle,
+    repository: &str,
+    tag: &str,
+    asset_name: &str,
+    max_bytes: usize,
+    label: &str,
+) -> Result<Vec<u8>, String> {
+    let client = app.state::<AppState>().client.clone();
+    let url = resolve_release_asset_url(&client, repository, tag, asset_name).await?;
+    let response = client
+        .get(url)
+        .header(reqwest::header::ACCEPT, "application/octet-stream")
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("{label} returned {}", response.status()));
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > max_bytes as u64)
+    {
+        return Err(format!("{label} is too large"));
+    }
+    let mut stream = response.bytes_stream();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| error.to_string())?;
+        if bytes.len() + chunk.len() > max_bytes {
+            return Err(format!("{label} is too large"));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
+fn repository_slug() -> &'static str {
+    PROJECT_URL.trim_start_matches("https://github.com/")
+}
+
+/// Split an immutable github.com release-download URL into
+/// (repository, tag, asset name) so the same asset can be fetched through the
+/// GitHub API when github.com itself is unreachable.
+fn github_release_download_parts(url: &url::Url) -> Option<(String, String, String)> {
+    if url.scheme() != "https" || url.host_str() != Some("github.com") {
+        return None;
+    }
+    let segments: Vec<&str> = url.path_segments()?.collect();
+    if segments.len() >= 6 && segments[2] == "releases" && segments[3] == "download" {
+        let repository = format!("{}/{}", segments[0], segments[1]);
+        let tag = segments[4].to_string();
+        let asset_name = segments.last()?.to_string();
+        if !asset_name.is_empty() {
+            return Some((repository, tag, asset_name));
+        }
+    }
+    None
 }
 
 async fn install_entry(app: &tauri::AppHandle, entry: &PetCatalogEntryV1) -> Result<(), String> {
@@ -889,12 +1175,60 @@ async fn install_entry(app: &tauri::AppHandle, entry: &PetCatalogEntryV1) -> Res
     // Serialize installs so a background auto-update and a user-triggered install
     // can't interleave writes to the same .part file or race the final rename.
     let _install_guard = state.install_lock.lock().await;
-    let response = state
-        .client
-        .get(package_url)
-        .send()
-        .await
-        .map_err(|error| error.to_string())?;
+    let bytes = download_pet_package(app, &package_url, entry).await?;
+    let downloads = state.data_dir.join("downloads");
+    std::fs::create_dir_all(&downloads).map_err(|error| error.to_string())?;
+    let package = downloads.join(format!("{}-{}.zip.part", entry.id, entry.version));
+    std::fs::write(&package, &bytes).map_err(|error| error.to_string())?;
+    let result = install_downloaded_package(app, entry, &package);
+    let _ = std::fs::remove_file(&package);
+    result
+}
+
+/// Download a pet package, falling back to the GitHub API mirror of the same
+/// release asset when the direct github.com download fails (e.g. networks
+/// where github.com is blocked). The SHA-256 check in
+/// `install_downloaded_package` verifies the bytes either way.
+async fn download_pet_package(
+    app: &tauri::AppHandle,
+    package_url: &url::Url,
+    entry: &PetCatalogEntryV1,
+) -> Result<Vec<u8>, String> {
+    let client = app.state::<AppState>().client.clone();
+    match stream_pet_package(app, &client, package_url.clone(), entry, false).await {
+        Ok(bytes) => Ok(bytes),
+        Err(direct_error) => {
+            let Some((repository, tag, asset_name)) = github_release_download_parts(package_url)
+            else {
+                return Err(direct_error);
+            };
+            let api_url = resolve_release_asset_url(&client, &repository, &tag, &asset_name).await;
+            match api_url {
+                Ok(api_url) => stream_pet_package(app, &client, api_url, entry, true)
+                    .await
+                    .map_err(|api_error| {
+                        format!("{direct_error}; API 备用下载也失败：{api_error}")
+                    }),
+                Err(api_error) => Err(format!("{direct_error}; API 备用下载也失败：{api_error}")),
+            }
+        }
+    }
+}
+
+async fn stream_pet_package(
+    app: &tauri::AppHandle,
+    client: &reqwest::Client,
+    url: url::Url,
+    entry: &PetCatalogEntryV1,
+    via_api: bool,
+) -> Result<Vec<u8>, String> {
+    let request = client.get(url);
+    let request = if via_api {
+        request.header(reqwest::header::ACCEPT, "application/octet-stream")
+    } else {
+        request
+    };
+    let response = request.send().await.map_err(|error| error.to_string())?;
     if !response.status().is_success() {
         return Err(format!("pet download returned {}", response.status()));
     }
@@ -928,13 +1262,7 @@ async fn install_entry(app: &tauri::AppHandle, entry: &PetCatalogEntryV1) -> Res
     if bytes.len() as u64 != entry.size_bytes {
         return Err("pet download size does not match the catalog".into());
     }
-    let downloads = state.data_dir.join("downloads");
-    std::fs::create_dir_all(&downloads).map_err(|error| error.to_string())?;
-    let package = downloads.join(format!("{}-{}.zip.part", entry.id, entry.version));
-    std::fs::write(&package, &bytes).map_err(|error| error.to_string())?;
-    let result = install_downloaded_package(app, entry, &package);
-    let _ = std::fs::remove_file(&package);
-    result
+    Ok(bytes)
 }
 
 fn install_downloaded_package(
@@ -975,21 +1303,78 @@ fn install_downloaded_package(
     Ok(())
 }
 
-fn select_pet(app: &tauri::AppHandle, id: &str, version: &str) -> Result<(), String> {
-    let state = app.state::<AppState>();
-    let payload = resolve_pet_payload(app, id, version)?;
-    let mut settings = state
+/// Ensure one live window exists per selected pet: close surplus pet windows,
+/// create missing ones (each with its own motion engine), apply window-level
+/// settings, and push every window the pet it should render.
+fn sync_pet_windows(app: &tauri::AppHandle) -> Result<(), String> {
+    let settings = app
+        .state::<AppState>()
         .settings
         .lock()
-        .map_err(|_| "settings lock poisoned")?;
-    settings.selected_pet.id = id.into();
-    settings.selected_pet.version = version.into();
-    state
-        .settings_store
-        .save(&settings)
-        .map_err(|error| error.to_string())?;
-    app.emit("pet://changed", payload)
-        .map_err(|error| error.to_string())
+        .map_err(|_| "settings lock poisoned")?
+        .clone();
+    let desired: Vec<String> = (0..settings.selected_pets.len())
+        .map(pet_window_label)
+        .collect();
+    for (label, window) in app.webview_windows() {
+        if pet_window_index(&label).is_some() && !desired.contains(&label) {
+            let _ = window.close();
+        }
+    }
+    for (index, label) in desired.iter().enumerate() {
+        if app.get_webview_window(label).is_none() {
+            create_pet_window(app, label, &settings, index)?;
+        }
+        runtime::ensure_motion_engine(app, label);
+    }
+    apply_window_settings(app, &settings);
+    for (index, selected) in settings.selected_pets.iter().enumerate() {
+        if let Ok(payload) = resolve_pet_payload(app, &selected.id, &selected.version) {
+            let _ = app.emit_to(pet_window_label(index), "pet://changed", payload);
+        }
+    }
+    Ok(())
+}
+
+fn create_pet_window(
+    app: &tauri::AppHandle,
+    label: &str,
+    settings: &SettingsV1,
+    index: usize,
+) -> Result<tauri::WebviewWindow, String> {
+    let width = 192.0 * settings.pet.scale + 6.0;
+    let height = 208.0 * settings.pet.scale + 6.0;
+    let window = tauri::WebviewWindowBuilder::new(
+        app,
+        label,
+        tauri::WebviewUrl::App("index.html?view=pet".into()),
+    )
+    .title("DeskMate")
+    .transparent(true)
+    .decorations(false)
+    .resizable(false)
+    .shadow(false)
+    .always_on_top(settings.pet.always_on_top)
+    .skip_taskbar(true)
+    .focused(false)
+    .visible(false)
+    .inner_size(width, height)
+    .build()
+    .map_err(|error| format!("创建桌宠窗口失败：{error}"))?;
+    // Stagger new pets along the bottom of the cursor monitor so they don't
+    // stack on top of each other.
+    if let Some(area) = runtime::cursor_work_area() {
+        let offset = index as f64 * (width + 48.0);
+        let center = area.left as f64 + (area.right - area.left) as f64 / 2.0;
+        let x = center + offset - width / 2.0;
+        let y = area.bottom as f64 - height - 48.0;
+        let _ = window.set_position(tauri::PhysicalPosition::new(
+            x.round() as i32,
+            y.round() as i32,
+        ));
+    }
+    let _ = window.show();
+    Ok(window)
 }
 
 fn custom_pets_root(app: &tauri::AppHandle) -> PathBuf {
@@ -1056,18 +1441,14 @@ fn bundled_pet_sprite_version(id: &str, version: &str) -> Option<u8> {
         .map(|(_, _, sprite_version_number)| *sprite_version_number)
 }
 
-async fn auto_update_selected_pet(app: &tauri::AppHandle) -> Result<(), String> {
+async fn auto_update_selected_pets(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let selected = state
         .settings
         .lock()
         .map_err(|_| "settings lock poisoned")?
-        .selected_pet
+        .selected_pets
         .clone();
-    if selected.version == "local" {
-        return Ok(());
-    }
-    let current = semver::Version::parse(&selected.version).map_err(|error| error.to_string())?;
     let app_version = semver::Version::parse(APP_VERSION).map_err(|error| error.to_string())?;
     let catalog = state
         .catalog
@@ -1075,41 +1456,71 @@ async fn auto_update_selected_pet(app: &tauri::AppHandle) -> Result<(), String> 
         .map_err(|_| "catalog lock poisoned")?
         .clone()
         .ok_or("catalog unavailable")?;
-    let candidate = catalog
-        .pets
-        .into_iter()
-        .filter(|entry| entry.id == selected.id)
-        .filter_map(|entry| {
-            let version = semver::Version::parse(&entry.version).ok()?;
-            let minimum = semver::Version::parse(&entry.min_app_version).ok()?;
-            (version > current && minimum <= app_version).then_some((version, entry))
-        })
-        .max_by(|left, right| left.0.cmp(&right.0));
-    let Some((_, entry)) = candidate else {
-        return Ok(());
-    };
-    install_entry(app, &entry).await?;
-    wait_until_pet_idle(app).await;
-    let still_selected = state
-        .settings
-        .lock()
-        .map_err(|_| "settings lock poisoned")?
-        .selected_pet
-        .id
-        == entry.id;
-    if still_selected {
-        select_pet(app, &entry.id, &entry.version)
-    } else {
-        Ok(())
+    let mut upgrades: Vec<(String, PetCatalogEntryV1)> = Vec::new();
+    for pet in &selected {
+        if pet.version == "local" {
+            continue;
+        }
+        let Ok(current) = semver::Version::parse(&pet.version) else {
+            continue;
+        };
+        let candidate = catalog
+            .pets
+            .iter()
+            .filter(|entry| entry.id == pet.id)
+            .filter_map(|entry| {
+                let version = semver::Version::parse(&entry.version).ok()?;
+                let minimum = semver::Version::parse(&entry.min_app_version).ok()?;
+                (version > current && minimum <= app_version).then_some((version, entry))
+            })
+            .max_by(|left, right| left.0.cmp(&right.0));
+        if let Some((_, entry)) = candidate {
+            upgrades.push((pet.version.clone(), entry.clone()));
+        }
     }
+    if upgrades.is_empty() {
+        return Ok(());
+    }
+    for (_, entry) in &upgrades {
+        install_entry(app, entry).await?;
+    }
+    wait_until_pet_idle(app).await;
+    // Apply the upgrades to pets that are still selected, then re-sync windows.
+    let changed = {
+        let mut settings = state
+            .settings
+            .lock()
+            .map_err(|_| "settings lock poisoned")?;
+        let mut changed = false;
+        for (old_version, entry) in &upgrades {
+            for pet in settings.selected_pets.iter_mut() {
+                if pet.id == entry.id && &pet.version == old_version {
+                    pet.version = entry.version.clone();
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            settings.selected_pet = settings.selected_pets[0].clone();
+            state
+                .settings_store
+                .save(&settings)
+                .map_err(|error| error.to_string())?;
+        }
+        changed
+    };
+    if changed {
+        sync_pet_windows(app)?;
+    }
+    Ok(())
 }
 
 async fn wait_until_pet_idle(app: &tauri::AppHandle) {
     for _ in 0..1_200 {
         let state = app.state::<AppState>();
-        if !state.moving.load(Ordering::Relaxed)
-            && !state.dragging.load(Ordering::Relaxed)
-            && !state.interacting.load(Ordering::Relaxed)
+        if !any_window_flag(&state.moving)
+            && !any_window_flag(&state.dragging)
+            && !any_window_flag(&state.interacting)
         {
             return;
         }

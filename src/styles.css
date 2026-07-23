@@ -31,12 +31,11 @@ button {
 }
 
 .pet-sprite {
-  width: 192px;
-  height: 208px;
+  /* width/height are set inline from the pet scale so the layout box always
+     matches the native window size (no CSS transform scaling). */
   flex: 0 0 auto;
   background-repeat: no-repeat;
   image-rendering: auto;
-  transform-origin: center bottom;
 }
 
 .pet-thumbnail {

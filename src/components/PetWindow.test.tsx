@@ -10,7 +10,7 @@ const tauriMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../lib/tauri", () => ({
-  emitEvent: vi.fn(),
+  emitWindowFlag: vi.fn(),
   listenEvent: tauriMocks.listenEvent,
   petAssetUrl: (path?: string | null, id?: string) =>
     path ?? (id === "lev-neon" ? "/pets/lev-neon/spritesheet.webp" : "/pets/yanghao/spritesheet.webp"),

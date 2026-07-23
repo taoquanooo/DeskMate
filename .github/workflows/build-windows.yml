@@ -38,6 +38,10 @@ jobs:
       - run: cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
       - name: Build unsigned NSIS preview
         run: pnpm tauri build --ci --config src-tauri/tauri.preview.conf.json --target x86_64-pc-windows-msvc --bundles nsis
+        env:
+          # Same catalog URL as the release build so the preview installer can
+          # refresh the online pet catalog (with the api.github.com fallback).
+          DESKMATE_CATALOG_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/catalog/v1/catalog.json
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
