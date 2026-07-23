@@ -419,6 +419,16 @@ input[type="range"]::-webkit-slider-thumb {
   border-color: #c9c4bf;
   background: #fdfcfc;
 }
+.button-danger {
+  color: #b94a48;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 8px 10px;
+}
+.button-danger:hover {
+  background: #fff1ee;
+  border-color: #f0d6d0;
+}
 .icon-button {
   display: grid;
   place-items: center;

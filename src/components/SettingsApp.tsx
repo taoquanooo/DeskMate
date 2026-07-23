@@ -13,6 +13,7 @@ import {
   RefreshCw,
   RotateCcw,
   Share2,
+  Trash2,
 } from "lucide-react";
 import type { Reminder, ReminderSchedule } from "../domain/reminders";
 import type { LocalPetV1, PetCatalogV1 } from "../domain/pets";
@@ -53,6 +54,7 @@ export interface SettingsAppProps {
   onCatalogRefresh?: () => void;
   onPetInstall?: (id: string, version: string) => void;
   onPetSelect?: (id: string, version: string) => void;
+  onPetUninstall?: (id: string, version: string) => void;
   onAutostartChange?: (enabled: boolean) => void;
   localPets?: LocalPetV1[];
   localPetFolder?: string;
@@ -88,6 +90,7 @@ export function SettingsApp({
   onCatalogRefresh,
   onPetInstall,
   onPetSelect,
+  onPetUninstall,
   onAutostartChange,
   localPets = [],
   localPetFolder,
@@ -187,6 +190,7 @@ export function SettingsApp({
             onRefresh={onCatalogRefresh}
             onInstall={onPetInstall}
             onSelect={onPetSelect}
+            onUninstall={onPetUninstall}
             installedPets={installedPets}
             installProgress={installProgress}
             localPets={localPets}
@@ -410,6 +414,7 @@ function PetLibrary({
   onRefresh,
   onInstall,
   onSelect,
+  onUninstall,
   installedPets = [],
   installProgress = {},
   localPets,
@@ -427,6 +432,7 @@ function PetLibrary({
   onRefresh?: () => void;
   onInstall?: (id: string, version: string) => void;
   onSelect?: (id: string, version: string) => void;
+  onUninstall?: (id: string, version: string) => void;
   installedPets?: InstalledPet[];
   installProgress?: Record<string, InstallProgress>;
   localPets: LocalPetV1[];
@@ -523,6 +529,13 @@ function PetLibrary({
                 使用
               </button>
             )}
+            <button
+              className="button button-danger"
+              title="删除"
+              onClick={() => onUninstall?.(pet.id, "local")}
+            >
+              <Trash2 size={15} />
+            </button>
           </div>
         </article>
       ))}
@@ -595,6 +608,13 @@ function PetLibrary({
                     <span className="installed-label">已下载</span>
                     <button className="button button-primary" onClick={() => onSelect?.(pet.id, pet.version)}>
                       使用
+                    </button>
+                    <button
+                      className="button button-danger"
+                      title="删除"
+                      onClick={() => onUninstall?.(pet.id, pet.version)}
+                    >
+                      <Trash2 size={15} />
                     </button>
                   </>
                 ) : progress ? (

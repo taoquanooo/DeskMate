@@ -169,6 +169,73 @@ async fn installed_pets(app: tauri::AppHandle) -> Result<Vec<InstalledPetV1>, St
         .map_err(|error| format!("扫描已安装宠物失败：{error}"))?
 }
 
+#[tauri::command]
+async fn pet_uninstall(app: tauri::AppHandle, id: String, version: String) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let deleted_dir = if version == "local" {
+        // Custom pet: find the folder by scanning the custom pets directory.
+        let custom_root = state
+            .custom_pets_dir
+            .read()
+            .map_err(|_| "custom_pets_dir lock poisoned")?
+            .clone();
+        let scan =
+            tauri::async_runtime::spawn_blocking(move || pets::scan_local_pets(&custom_root))
+                .await
+                .map_err(|error| format!("扫描自定义宠物失败：{error}"))?;
+        let pet = scan
+            .pets
+            .into_iter()
+            .find(|pet| pet.id == id)
+            .ok_or_else(|| format!("找不到本地宠物 {id}"))?;
+        let dir = state
+            .custom_pets_dir
+            .read()
+            .map_err(|_| "custom_pets_dir lock poisoned")?
+            .join(&pet.folder_name);
+        dir
+    } else {
+        state.data_dir.join("pets").join(&id).join(&version)
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        if deleted_dir.exists() {
+            std::fs::remove_dir_all(&deleted_dir).map_err(|error| format!("删除失败：{error}"))?;
+        }
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|error| format!("删除任务失败：{error}"))??;
+    // If the deleted pet was the current selection, fall back to the default.
+    {
+        let mut settings = state
+            .settings
+            .lock()
+            .map_err(|_| "settings lock poisoned")?;
+        if settings.selected_pet.id == id && settings.selected_pet.version == version {
+            settings.selected_pet.id = "yanghao".into();
+            settings.selected_pet.version = "1.0.0".into();
+            state
+                .settings_store
+                .save(&settings)
+                .map_err(|error| error.to_string())?;
+            let _ = app.emit(
+                "pet://changed",
+                PetChangedPayload {
+                    id: "yanghao".into(),
+                    version: "1.0.0".into(),
+                    sprite_version_number: 2,
+                    spritesheet_path: None,
+                },
+            );
+        }
+    }
+    let _ = app.emit(
+        "pet://uninstalled",
+        serde_json::json!({ "id": id, "version": version }),
+    );
+    Ok(())
+}
+
 fn scan_installed_pets(pets_root: &Path) -> Result<Vec<InstalledPetV1>, String> {
     let mut installed = Vec::new();
     let id_entries = match std::fs::read_dir(pets_root) {
@@ -519,6 +586,15 @@ pub fn run() {
             }
             create_tray(app)?;
             apply_window_settings(app.handle(), &settings);
+            // Emit the saved pet so the pet window picks it up even if its
+            // initial petCurrent() call raced ahead of app.manage(AppState).
+            if let Ok(payload) = resolve_pet_payload(
+                app.handle(),
+                &settings.selected_pet.id,
+                &settings.selected_pet.version,
+            ) {
+                let _ = app.handle().emit("pet://changed", payload);
+            }
             if let Some(settings_window) = app.get_webview_window("settings") {
                 let window = settings_window.clone();
                 settings_window.on_window_event(move |event| {
@@ -543,6 +619,7 @@ pub fn run() {
             pet_catalog_refresh,
             pet_install,
             installed_pets,
+            pet_uninstall,
             pet_select,
             pet_local_refresh,
             pet_local_folder_open,
@@ -574,8 +651,10 @@ fn apply_window_settings(app: &tauri::AppHandle, settings: &SettingsV1) {
         .zip(pet.current_monitor().ok().flatten())
         .map(|((position, old_size), monitor)| {
             let scale_factor = monitor.scale_factor();
-            let new_width = (192.0 * settings.pet.scale * scale_factor).round() as i32;
-            let new_height = (208.0 * settings.pet.scale * scale_factor).round() as i32;
+            // Add a small padding so the sprite is never clipped by the
+            // window's non-client area at extreme scales.
+            let new_width = ((192.0 * settings.pet.scale + 6.0) * scale_factor).round() as i32;
+            let new_height = ((208.0 * settings.pet.scale + 6.0) * scale_factor).round() as i32;
             let work_area = monitor.work_area();
             motion::resize_around_bottom_center(
                 motion::Point {
@@ -595,8 +674,8 @@ fn apply_window_settings(app: &tauri::AppHandle, settings: &SettingsV1) {
             )
         });
     let _ = pet.set_size(tauri::LogicalSize::new(
-        192.0 * settings.pet.scale,
-        208.0 * settings.pet.scale,
+        192.0 * settings.pet.scale + 6.0,
+        208.0 * settings.pet.scale + 6.0,
     ));
     if let Some(position) = reposition {
         let _ = pet.set_position(tauri::PhysicalPosition::new(

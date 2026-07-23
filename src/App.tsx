@@ -16,6 +16,7 @@ import {
   petCatalogRefresh,
   petCurrent,
   petInstall,
+  petUninstall,
   openPetGalleryUrl,
   openPetDexUrl,
   petLocalFolderOpen,
@@ -137,6 +138,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
     let active = true;
     let disposedInstalled: (() => void) | undefined;
     let disposedProgress: (() => void) | undefined;
+    let disposedUninstalled: (() => void) | undefined;
     const refreshInstalled = async () => {
       try {
         const list = await installedPets();
@@ -158,6 +160,14 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
       if (active) disposedInstalled = dispose;
       else dispose();
     });
+    void listenEvent<{ id: string; version: string }>("pet://uninstalled", () => {
+      if (!active) return;
+      void refreshInstalled();
+      void refreshLocalPets();
+    }).then((dispose) => {
+      if (active) disposedUninstalled = dispose;
+      else dispose();
+    });
     void listenEvent<InstallProgress>("pet://install-progress", (progress) => {
       if (!active) return;
       setInstallProgress((current) => ({
@@ -172,6 +182,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
       active = false;
       disposedInstalled?.();
       disposedProgress?.();
+      disposedUninstalled?.();
     };
   }, [settings?.onboardingComplete]);
 
@@ -288,6 +299,9 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
           () => setSettings((current) => (current ? { ...current, selectedPet: { id, version } } : current)),
           (error) => setCatalogError(`切换宠物失败：${String(error)}`),
         )
+      }
+      onPetUninstall={(id, version) =>
+        void petUninstall(id, version).catch((error) => setCatalogError(`删除失败：${String(error)}`))
       }
       onAutostartChange={(enabled) => void autostartSet(enabled)}
       localPets={localPetScan.pets}

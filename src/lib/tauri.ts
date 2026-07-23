@@ -96,6 +96,10 @@ export async function petInstall(id: string, version: string) {
   return invoke("pet_install", { id, version });
 }
 
+export async function petUninstall(id: string, version: string) {
+  return invoke("pet_uninstall", { id, version });
+}
+
 export async function installedPets(): Promise<InstalledPet[]> {
   if (!isTauri()) return [];
   return invoke<InstalledPet[]>("installed_pets");
