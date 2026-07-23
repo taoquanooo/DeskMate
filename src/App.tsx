@@ -133,6 +133,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
   }, []);
 
   useEffect(() => {
+    if (!settings?.onboardingComplete) return;
     let active = true;
     let disposedInstalled: (() => void) | undefined;
     let disposedProgress: (() => void) | undefined;
@@ -172,7 +173,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
       disposedInstalled?.();
       disposedProgress?.();
     };
-  }, []);
+  }, [settings?.onboardingComplete]);
 
   if (settingsError)
     return (

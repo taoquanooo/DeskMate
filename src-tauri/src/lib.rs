@@ -156,8 +156,14 @@ async fn pet_install(app: tauri::AppHandle, id: String, version: String) -> Resu
 
 #[tauri::command]
 async fn installed_pets(app: tauri::AppHandle) -> Result<Vec<InstalledPetV1>, String> {
-    let state = app.state::<AppState>();
-    let pets_root = state.data_dir.join("pets");
+    // Same pre-manage race as `pet_local_refresh`: the settings window can
+    // invoke this on mount before `app.manage(AppState)` has run. Without
+    // managed state there is no data dir yet, so return an empty list rather
+    // than panicking under `panic = "abort"`.
+    let pets_root = match app.try_state::<AppState>() {
+        Some(state) => state.data_dir.join("pets"),
+        None => return Ok(Vec::new()),
+    };
     tauri::async_runtime::spawn_blocking(move || scan_installed_pets(&pets_root))
         .await
         .map_err(|error| format!("扫描已安装宠物失败：{error}"))?

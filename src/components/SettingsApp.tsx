@@ -149,7 +149,7 @@ export function SettingsApp({
           <span className="status-dot" />
           <span className="sidebar-footer-info">
             运行中
-            <small>DeskMate v0.1.2</small>
+            <small>DeskMate v0.1.3</small>
           </span>
           <button
             type="button"
@@ -645,7 +645,7 @@ function About({
       <div className="about-mark">
         <Heart size={32} fill="currentColor" />
       </div>
-      <h2 className="about-title">DeskMate v0.1.2</h2>
+      <h2 className="about-title">DeskMate v0.1.3</h2>
       <p className="about-intro">陪伴、提醒和可更换宠物都在本机完成</p>
       <p className="about-copy">程序代码采用 MIT 许可证。</p>
       <div className="about-actions">
