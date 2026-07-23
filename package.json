@@ -1,7 +1,7 @@
 {
   "name": "deskmate",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "repository": "https://github.com/taoquanooo/deskmate",
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:workflows": "node --test scripts/workflows.verify.mjs",
+    "test:workflows": "node --test scripts/online-pets.test.mjs scripts/workflows.verify.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc -b --pretty false",
     "format": "prettier --write .",

@@ -12,7 +12,8 @@ const tauriMocks = vi.hoisted(() => ({
 vi.mock("../lib/tauri", () => ({
   emitEvent: vi.fn(),
   listenEvent: tauriMocks.listenEvent,
-  petAssetUrl: (path?: string | null) => path ?? "/pets/yanghao/spritesheet.webp",
+  petAssetUrl: (path?: string | null, id?: string) =>
+    path ?? (id === "lev-neon" ? "/pets/lev-neon/spritesheet.webp" : "/pets/yanghao/spritesheet.webp"),
   petCurrent: tauriMocks.petCurrent,
   settingsGet: tauriMocks.settingsGet,
   startWindowDrag: vi.fn(),
@@ -60,6 +61,23 @@ describe("PetWindow", () => {
       expect(sprite).toHaveStyle({
         backgroundImage: "url(C:\\custom-pets\\studio-cat\\spritesheet.webp)",
         backgroundSize: "1536px 1872px",
+      }),
+    );
+  });
+
+  it("resolves Lev-neon to its bundled atlas when native payload has no filesystem path", async () => {
+    tauriMocks.petCurrent.mockResolvedValue({
+      id: "lev-neon",
+      version: "1.0.0",
+      spriteVersionNumber: 2,
+      spritesheetPath: null,
+    });
+
+    render(<PetWindow />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("img")).toHaveStyle({
+        backgroundImage: "url(/pets/lev-neon/spritesheet.webp)",
       }),
     );
   });

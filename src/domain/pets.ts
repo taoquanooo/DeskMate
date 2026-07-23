@@ -13,7 +13,7 @@ export interface PetCatalogEntryV1 {
   description: string;
   author: string;
   assetLicense: string;
-  spriteVersionNumber: 2;
+  spriteVersionNumber: 1 | 2;
   minAppVersion: string;
   previewUrl: string;
   packageUrl: string;
@@ -127,7 +127,9 @@ function validateCatalogEntry(value: unknown, seen: Set<string>): PetCatalogEntr
       throw new Error(`${field} must be a non-empty string`);
     }
   }
-  if (value.spriteVersionNumber !== 2) throw new Error("spriteVersionNumber must be 2");
+  if (value.spriteVersionNumber !== 1 && value.spriteVersionNumber !== 2) {
+    throw new Error("spriteVersionNumber must be 1 or 2");
+  }
   if (!Number.isSafeInteger(value.sizeBytes) || (value.sizeBytes as number) <= 0) {
     throw new Error("sizeBytes must be a positive integer");
   }

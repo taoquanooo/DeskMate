@@ -26,6 +26,8 @@ const MAX_CATALOG_BYTES: usize = 2 * 1024 * 1024;
 const MAX_PET_PACKAGE_BYTES: u64 = 25 * 1024 * 1024;
 const PROJECT_URL: &str = "https://github.com/taoquanooo/DeskMate";
 const PET_GALLERY_URL: &str = "https://codex-pet.org/zh/";
+const PETDEX_URL: &str = "https://petdex.dev/";
+const BUILT_IN_PETS: [(&str, &str, u8); 2] = [("yanghao", "1.0.0", 2), ("lev-neon", "1.0.0", 2)];
 
 pub struct AppState {
     settings: Mutex<SettingsV1>,
@@ -303,6 +305,15 @@ fn pet_gallery_url_open() -> Result<(), String> {
 }
 
 #[tauri::command]
+fn petdex_url_open() -> Result<(), String> {
+    std::process::Command::new("explorer.exe")
+        .arg(PETDEX_URL)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("无法打开 PetDex：{error}"))
+}
+
+#[tauri::command]
 fn pet_recall(app: tauri::AppHandle) -> Result<(), String> {
     runtime::recall_to_cursor_monitor(&app)
 }
@@ -462,6 +473,7 @@ pub fn run() {
             project_url_open,
             project_share_copy,
             pet_gallery_url_open,
+            petdex_url_open,
             window_set_click_through,
             updater_check,
             updater_install,
@@ -780,10 +792,7 @@ fn install_downloaded_package(
         chrono::Utc::now().timestamp_millis()
     ));
     pets::extract_validated_package(package, &staging).map_err(|error| error.to_string())?;
-    let manifest: pets::PetManifestV2 = serde_json::from_slice(
-        &std::fs::read(staging.join("pet.json")).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
+    let (manifest, _) = pets::load_pet_directory(&staging)?;
     if manifest.id != entry.id {
         let _ = std::fs::remove_dir_all(&staging);
         return Err("pet manifest id does not match the catalog".into());
@@ -833,11 +842,11 @@ fn resolve_pet_payload(
     id: &str,
     version: &str,
 ) -> Result<PetChangedPayload, String> {
-    if id == "yanghao" && version == "1.0.0" {
+    if let Some(sprite_version_number) = bundled_pet_sprite_version(id, version) {
         return Ok(PetChangedPayload {
             id: id.into(),
             version: version.into(),
-            sprite_version_number: 2,
+            sprite_version_number,
             spritesheet_path: None,
         });
     }
@@ -845,15 +854,14 @@ fn resolve_pet_payload(
         let (manifest, spritesheet) = pets::find_local_pet(&custom_pets_root(app), id)?;
         (spritesheet, manifest.sprite_version_number)
     } else {
-        (
-            app.state::<AppState>()
+        pets::load_pet_directory(
+            &app.state::<AppState>()
                 .data_dir
                 .join("pets")
                 .join(id)
-                .join(version)
-                .join("spritesheet.webp"),
-            2,
+                .join(version),
         )
+        .map(|(manifest, spritesheet)| (spritesheet, manifest.sprite_version_number))?
     };
     if !spritesheet.is_file() {
         return Err("pet version is not installed".into());
@@ -867,6 +875,15 @@ fn resolve_pet_payload(
         sprite_version_number,
         spritesheet_path: Some(spritesheet),
     })
+}
+
+fn bundled_pet_sprite_version(id: &str, version: &str) -> Option<u8> {
+    BUILT_IN_PETS
+        .iter()
+        .find(|(built_in_id, built_in_version, _)| {
+            *built_in_id == id && *built_in_version == version
+        })
+        .map(|(_, _, sprite_version_number)| *sprite_version_number)
 }
 
 async fn auto_update_selected_pet(app: &tauri::AppHandle) -> Result<(), String> {

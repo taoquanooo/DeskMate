@@ -3,6 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PetChangedPayload } from "../lib/tauri";
 
 vi.mock("../lib/tauri", () => ({
+  BUILT_IN_PETS: [
+    { id: "yanghao", spriteVersionNumber: 2, spritesheetUrl: "/pets/yanghao/spritesheet.webp" },
+    { id: "lev-neon", spriteVersionNumber: 2, spritesheetUrl: "/pets/lev-neon/spritesheet.webp" },
+  ],
   petAssetUrl: (path?: string | null) => path ?? "/pets/yanghao/spritesheet.webp",
 }));
 
@@ -26,16 +30,29 @@ describe("PetPreview", () => {
     render(
       <PetPreview
         pet={{ id: "yanghao", version: "1.0.0", spriteVersionNumber: 2, spritesheetPath: null }}
-        displayName="杨皓"
+        displayName="默认伙伴"
       />,
     );
 
     expect(screen.getByRole("img")).toHaveStyle({ transform: "scale(1)" });
-    expect(screen.getByText("杨皓 · v1.0.0")).toBeInTheDocument();
+    expect(screen.getByText("默认伙伴 · v1.0.0")).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(3_200));
     expect(screen.getByLabelText("桌宠正在挥手")).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(1_400));
     expect(screen.getByLabelText("桌宠正在跳跃")).toBeInTheDocument();
+  });
+
+  it("resolves Lev-neon to its bundled atlas without an app-data path", () => {
+    render(
+      <PetPreview
+        pet={{ id: "lev-neon", version: "1.0.0", spriteVersionNumber: 2, spritesheetPath: null }}
+        displayName="Lev-neon"
+      />,
+    );
+
+    expect(screen.getByRole("img")).toHaveStyle({
+      backgroundImage: "url(/pets/lev-neon/spritesheet.webp)",
+    });
   });
 
   it("keeps the last working image when the next pet image fails", async () => {

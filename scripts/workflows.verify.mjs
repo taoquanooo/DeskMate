@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const workflowUrl = new URL("../.github/workflows/build-windows.yml", import.meta.url);
+const publishPetsUrl = new URL("../.github/workflows/publish-pets.yml", import.meta.url);
 const previewConfigUrl = new URL("../src-tauri/tauri.preview.conf.json", import.meta.url);
 const tauriConfigUrl = new URL("../src-tauri/tauri.conf.json", import.meta.url);
 const cargoManifestUrl = new URL("../src-tauri/Cargo.toml", import.meta.url);
@@ -103,4 +104,22 @@ test("pet-library thumbnails clip a fixed frame from the bottom center", async (
   assert.match(rule, /height:\s*92px/);
   assert.match(rule, /overflow:\s*hidden/);
   assert.match(rule, /place-items:\s*end center/);
+});
+
+test("the pet publishing workflow publishes without building the app", async () => {
+  const workflow = await readFile(publishPetsUrl, "utf8");
+
+  assert.match(workflow, /push:/);
+  assert.match(workflow, /- main/);
+  assert.match(workflow, /online-pets\/\*\*/);
+  assert.match(workflow, /node scripts\/build-online-pets\.mjs/);
+  assert.match(workflow, /tag_name: pets-v1/);
+  assert.match(workflow, /output\/packages\/\*\.zip/);
+  assert.match(workflow, /actions\/upload-pages-artifact/);
+  assert.match(workflow, /actions\/deploy-pages/);
+  assert.doesNotMatch(workflow, /dtolnay\/rust-toolchain/);
+  assert.doesNotMatch(workflow, /cargo/);
+  assert.doesNotMatch(workflow, /pnpm tauri/);
+  assert.doesNotMatch(workflow, /nsis/);
+  assert.doesNotMatch(workflow, /tauri-apps\/tauri-action/);
 });

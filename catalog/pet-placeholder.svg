@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192" role="img" aria-label="DeskMate pet placeholder">
+  <rect width="192" height="192" rx="32" fill="#f5efe8"/>
+  <circle cx="96" cy="96" r="58" fill="#ffb347"/>
+  <path d="M55 66 65 32l27 22m35 12 10-34 27 22" fill="#ffb347" stroke="#7b4a21" stroke-linejoin="round" stroke-width="8"/>
+  <circle cx="76" cy="92" r="7" fill="#242322"/><circle cx="116" cy="92" r="7" fill="#242322"/>
+  <path d="M76 119c13 10 27 10 40 0" fill="none" stroke="#242322" stroke-linecap="round" stroke-width="7"/>
+</svg>

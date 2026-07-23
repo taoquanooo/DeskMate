@@ -6,7 +6,7 @@ describe("Codex v2 pet contract", () => {
     expect(
       validatePetManifest({
         id: "yanghao",
-        displayName: "杨皓",
+        displayName: "默认伙伴",
         description: "工作室吉祥物",
         spriteVersionNumber: 2,
         spritesheetPath: "spritesheet.webp",
@@ -42,7 +42,7 @@ describe("Codex v2 pet contract", () => {
           {
             id: "yanghao",
             version: "1.0.0",
-            displayName: "杨皓",
+            displayName: "默认伙伴",
             description: "工作室吉祥物",
             author: "DeskMate Studio",
             assetLicense: "All Rights Reserved",
@@ -56,5 +56,55 @@ describe("Codex v2 pet contract", () => {
         ],
       }),
     ).toThrow("packageUrl must use HTTPS");
+  });
+
+  it("accepts a v1 pet in the online catalog", () => {
+    expect(
+      validateCatalog({
+        schemaVersion: 1,
+        generatedAt: "2026-07-21T00:00:00Z",
+        pets: [
+          {
+            id: "legacy-cat",
+            version: "1.0.0",
+            displayName: "Legacy Cat",
+            description: "A Codex v1 catalog pet",
+            author: "DeskMate Studio",
+            assetLicense: "MIT",
+            spriteVersionNumber: 1,
+            minAppVersion: "0.1.0",
+            previewUrl: "https://example.com/preview.webp",
+            packageUrl: "https://github.com/example/repo/releases/download/v1.0.0/legacy-cat.zip",
+            sha256: "a".repeat(64),
+            sizeBytes: 1024,
+          },
+        ],
+      }),
+    ).toMatchObject({ pets: [{ id: "legacy-cat", spriteVersionNumber: 1 }] });
+  });
+
+  it("rejects catalog sprite versions outside v1 and v2", () => {
+    expect(() =>
+      validateCatalog({
+        schemaVersion: 1,
+        generatedAt: "2026-07-21T00:00:00Z",
+        pets: [
+          {
+            id: "invalid-version",
+            version: "1.0.0",
+            displayName: "Invalid Version",
+            description: "An invalid catalog pet",
+            author: "DeskMate Studio",
+            assetLicense: "MIT",
+            spriteVersionNumber: 3,
+            minAppVersion: "0.1.0",
+            previewUrl: "https://example.com/preview.webp",
+            packageUrl: "https://github.com/example/repo/releases/download/v1.0.0/invalid-version.zip",
+            sha256: "a".repeat(64),
+            sizeBytes: 1024,
+          },
+        ],
+      }),
+    ).toThrow("spriteVersionNumber must be 1 or 2");
   });
 });

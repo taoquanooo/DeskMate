@@ -373,8 +373,8 @@ git commit -m "Expose validated local pet thumbnails"
 Create `PetThumbnail.test.tsx` with three cases:
 
 ```tsx
-render(<PetThumbnail displayName="杨皓" spriteVersionNumber={2} />);
-expect(screen.getByRole("img", { name: "杨皓预览" })).toHaveStyle({
+render(<PetThumbnail displayName="默认伙伴" spriteVersionNumber={2} />);
+expect(screen.getByRole("img", { name: "默认伙伴预览" })).toHaveStyle({
   backgroundImage: "url(/pets/yanghao/spritesheet.webp)",
 });
 
@@ -413,7 +413,7 @@ Create a component that uses a normal `<img>` for `previewUrl`. For atlas previe
 Extend `SettingsApp.test.tsx` so the library test supplies a local `spritesheetPath` and a catalog entry with `previewUrl`, then asserts all three labels exist:
 
 ```tsx
-expect(screen.getByRole("img", { name: "杨皓预览" })).toBeInTheDocument();
+expect(screen.getByRole("img", { name: "默认伙伴预览" })).toBeInTheDocument();
 expect(screen.getByRole("img", { name: "工作室小猫预览" })).toBeInTheDocument();
 expect(screen.getByRole("img", { name: "官方小熊预览" })).toHaveAttribute(
   "src",
