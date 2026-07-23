@@ -30,7 +30,7 @@
 
 新增可复用的 `PetThumbnail` 组件，所有预览使用统一尺寸容器：
 
-- 内置杨皓：使用内置 `spritesheet.webp` 的 idle 第一帧。
+- 内置默认伙伴：使用内置 `spritesheet.webp` 的 idle 第一帧。
 - 自定义宠物：扫描结果新增经过校验的 `spritesheetPath`；Rust 仅把已验证的具体 WebP 文件加入 Tauri asset scope，前端显示对应图集的 idle 第一帧。
 - 官方目录宠物：优先使用目录中的 HTTPS `previewUrl`。图片加载失败时显示统一宠物占位图。
 

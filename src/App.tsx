@@ -16,6 +16,7 @@ import {
   petCurrent,
   petInstall,
   openPetGalleryUrl,
+  openPetDexUrl,
   petLocalFolderOpen,
   petLocalRefresh,
   petSelect,
@@ -242,6 +243,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
         return picked;
       }}
       onOpenPetGallery={() => void openPetGalleryUrl()}
+      onOpenPetDex={() => void openPetDexUrl()}
       onOpenProject={() => void openProjectUrl()}
       onShareProject={shareProject}
     />

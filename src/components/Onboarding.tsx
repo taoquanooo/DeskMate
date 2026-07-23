@@ -31,7 +31,7 @@ export function Onboarding({ onFinish }: { onFinish: (choice: OnboardingChoice) 
         <Heart size={28} fill="currentColor" />
       </div>
       <p className="eyebrow">欢迎来到 DESKMATE</p>
-      <h1>让杨皓陪你一起工作</h1>
+      <h1>让桌面伙伴陪你一起工作</h1>
       <p className="onboarding-intro">安静待在桌面，需要时提醒你喝水、远眺和活动一下。</p>
       <label className="choice-row">
         <span className="choice-icon">

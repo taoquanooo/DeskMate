@@ -1,6 +1,6 @@
 # DeskMate
 
-DeskMate 是一个开源的 Windows 桌宠：杨皓会在多显示器桌面上漫游、看向鼠标、回应点击，并用安静的小气泡提醒你喝水、远眺和活动。
+DeskMate 是一个开源的 Windows 桌宠：默认伙伴会在多显示器桌面上漫游、看向鼠标、回应点击，并用安静的小气泡提醒你喝水、远眺和活动。
 
 ![DeskMate 设置页](docs/design/deskmate-settings-final.jpg)
 
@@ -92,4 +92,4 @@ custom-pets/
 
 ## 许可证
 
-程序代码采用 [MIT](LICENSE)。杨皓宠物素材不适用 MIT，见 [独立素材许可](assets/pets/yanghao/ASSET_LICENSE.txt)。
+程序代码采用 [MIT](LICENSE)。默认伙伴素材不适用 MIT，见 [独立素材许可](assets/pets/yanghao/ASSET_LICENSE.txt)。

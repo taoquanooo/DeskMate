@@ -30,6 +30,27 @@ export interface PetChangedPayload {
 
 export const PROJECT_URL = "https://github.com/taoquanooo/DeskMate";
 export const PET_GALLERY_URL = "https://codex-pet.org/zh/";
+export const PETDEX_URL = "https://petdex.dev/";
+
+export const BUILT_IN_PETS = [
+  {
+    id: "yanghao",
+    version: "1.0.0",
+    displayName: "默认伙伴",
+    description:
+      "一位友善Q版骑行者形象：留着黑色短发，戴着长方形眼镜，佩戴一只白色耳塞，身穿宽松的白色衬衫和灰色短裤，脚蹬浅色运动鞋。",
+    spriteVersionNumber: 2 as const,
+    spritesheetUrl: "/pets/yanghao/spritesheet.webp",
+  },
+  {
+    id: "lev-neon",
+    version: "1.0.0",
+    displayName: "Lev-neon",
+    description: "一只温暖机灵、认真打磨工具，也懂得等待确认和复盘的金黄色小探索兽。",
+    spriteVersionNumber: 2 as const,
+    spritesheetUrl: "/pets/lev-neon/spritesheet.webp",
+  },
+] as const;
 
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
 
@@ -113,6 +134,14 @@ export async function openPetGalleryUrl() {
   window.open(PET_GALLERY_URL, "_blank", "noopener,noreferrer");
 }
 
+export async function openPetDexUrl() {
+  if (isTauri()) {
+    await invoke("petdex_url_open");
+    return;
+  }
+  window.open(PETDEX_URL, "_blank", "noopener,noreferrer");
+}
+
 export async function shareProject(): Promise<"shared" | "copied" | "cancelled"> {
   if (isTauri()) {
     await invoke("project_share_copy");
@@ -167,5 +196,6 @@ export async function hideCurrentWindow() {
 }
 
 export function petAssetUrl(path?: string | null) {
+  if (path?.startsWith("/pets/")) return path;
   return path && isTauri() ? convertFileSrc(path) : "/pets/yanghao/spritesheet.webp";
 }

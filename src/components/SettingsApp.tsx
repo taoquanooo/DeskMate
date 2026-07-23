@@ -17,7 +17,13 @@ import {
 import type { Reminder, ReminderSchedule } from "../domain/reminders";
 import type { LocalPetV1, PetCatalogV1 } from "../domain/pets";
 import type { SettingsV1 } from "../domain/settings";
-import { PROJECT_URL, PET_GALLERY_URL, type PetChangedPayload } from "../lib/tauri";
+import {
+  BUILT_IN_PETS,
+  PETDEX_URL,
+  PET_GALLERY_URL,
+  PROJECT_URL,
+  type PetChangedPayload,
+} from "../lib/tauri";
 import { PetPreview } from "./PetPreview";
 import { PetSizeSetting } from "./PetSizeSetting";
 import { PetThumbnail } from "./PetThumbnail";
@@ -51,6 +57,7 @@ export interface SettingsAppProps {
   onLocalPetRefresh?: () => void;
   onCustomPetsDirPick?: () => Promise<string | null>;
   onOpenPetGallery?: () => void;
+  onOpenPetDex?: () => void;
   onOpenProject?: () => void;
   onShareProject?: () => Promise<"shared" | "copied" | "cancelled">;
   currentPet?: PetChangedPayload | null;
@@ -83,6 +90,7 @@ export function SettingsApp({
   onLocalPetRefresh,
   onCustomPetsDirPick,
   onOpenPetGallery,
+  onOpenPetDex,
   onOpenProject,
   onShareProject,
   currentPet,
@@ -170,6 +178,7 @@ export function SettingsApp({
             onLocalPetRefresh={onLocalPetRefresh}
             onCustomPetsDirPick={onCustomPetsDirPick}
             onOpenPetGallery={onOpenPetGallery}
+            onOpenPetDex={onOpenPetDex}
           />
         )}
         {section === "about" && (
@@ -222,12 +231,11 @@ function PetSettings({
     spritesheetPath: null,
   };
   const previewName =
-    previewPet.id === "yanghao"
-      ? "杨皓"
-      : (localPets.find((pet) => pet.id === previewPet.id)?.displayName ??
-        catalog?.pets.find((pet) => pet.id === previewPet.id && pet.version === previewPet.version)
-          ?.displayName ??
-        previewPet.id);
+    BUILT_IN_PETS.find((pet) => pet.id === previewPet.id)?.displayName ??
+    localPets.find((pet) => pet.id === previewPet.id)?.displayName ??
+    catalog?.pets.find((pet) => pet.id === previewPet.id && pet.version === previewPet.version)
+      ?.displayName ??
+    previewPet.id;
 
   return (
     <>
@@ -391,6 +399,7 @@ function PetLibrary({
   onLocalPetRefresh,
   onCustomPetsDirPick,
   onOpenPetGallery,
+  onOpenPetDex,
 }: {
   catalog?: PetCatalogV1 | null;
   error?: string | null;
@@ -405,6 +414,7 @@ function PetLibrary({
   onLocalPetRefresh?: () => void;
   onCustomPetsDirPick?: () => Promise<string | null>;
   onOpenPetGallery?: () => void;
+  onOpenPetDex?: () => void;
 }) {
   const pets = catalog?.pets ?? [];
   return (
@@ -426,6 +436,17 @@ function PetLibrary({
         >
           <ExternalLink size={15} />
           浏览 Codex Pet Gallery
+        </a>
+        <a
+          className="button button-secondary"
+          href={PETDEX_URL}
+          onClick={(event) => {
+            event.preventDefault();
+            onOpenPetDex?.();
+          }}
+        >
+          <ExternalLink size={15} />
+          打开 PetDex
         </a>
       </aside>
       <section className="local-pet-panel" aria-label="自定义宠物导入">
@@ -492,25 +513,33 @@ function PetLibrary({
           刷新目录
         </button>
       </div>
-      <article className="library-row">
-        <PetThumbnail displayName="杨皓" spriteVersionNumber={2} />
-        <div className="pet-library-copy">
-          <strong>杨皓</strong>
-          <p>友善的骑行伙伴</p>
-          <span className="installed-label">
-            已安装 · {selected.id === "yanghao" ? "当前使用" : "可使用"}
-          </span>
-        </div>
-        <div className="pet-library-actions">
-          {selected.id !== "yanghao" && (
-            <button className="button button-primary" onClick={() => onSelect?.("yanghao", "1.0.0")}>
-              使用
-            </button>
-          )}
-        </div>
-      </article>
+      {BUILT_IN_PETS.map((pet) => (
+        <article className="library-row" key={`${pet.id}@${pet.version}`}>
+          <PetThumbnail
+            displayName={pet.displayName}
+            spritesheetPath={pet.spritesheetUrl}
+            spriteVersionNumber={pet.spriteVersionNumber}
+          />
+          <div className="pet-library-copy">
+            <strong>{pet.displayName}</strong>
+            <p>{pet.description}</p>
+            <span className="installed-label">
+              已安装 · {selected.id === pet.id && selected.version === pet.version ? "当前使用" : "可使用"}
+            </span>
+          </div>
+          <div className="pet-library-actions">
+            {(selected.id !== pet.id || selected.version !== pet.version) && (
+              <button className="button button-primary" onClick={() => onSelect?.(pet.id, pet.version)}>
+                使用
+              </button>
+            )}
+          </div>
+        </article>
+      ))}
       {pets
-        .filter((pet) => !(pet.id === "yanghao" && pet.version === "1.0.0"))
+        .filter(
+          (pet) => !BUILT_IN_PETS.some((builtIn) => builtIn.id === pet.id && builtIn.version === pet.version),
+        )
         .map((pet) => (
           <article className="catalog-pet-row" key={`${pet.id}@${pet.version}`}>
             <PetThumbnail displayName={pet.displayName} previewUrl={pet.previewUrl} />

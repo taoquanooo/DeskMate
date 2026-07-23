@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AnimationState } from "../domain/animation";
-import { petAssetUrl, type PetChangedPayload } from "../lib/tauri";
+import { BUILT_IN_PETS, petAssetUrl, type PetChangedPayload } from "../lib/tauri";
 import { PetSprite } from "./PetSprite";
 
 const SHOWCASE_DURATION_MS = 6_000;
-const BUILT_IN_APPEARANCE = {
-  spritesheetUrl: "/pets/yanghao/spritesheet.webp",
-  spriteVersionNumber: 2 as const,
+const DEFAULT_BUILT_IN_APPEARANCE = {
+  spritesheetUrl: BUILT_IN_PETS[0].spritesheetUrl,
+  spriteVersionNumber: BUILT_IN_PETS[0].spriteVersionNumber,
 };
 
 type PreviewAppearance = {
@@ -16,7 +16,7 @@ type PreviewAppearance = {
 
 export function PetPreview({ pet, displayName }: { pet: PetChangedPayload; displayName: string }) {
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [appearance, setAppearance] = useState<PreviewAppearance>(BUILT_IN_APPEARANCE);
+  const [appearance, setAppearance] = useState<PreviewAppearance>(DEFAULT_BUILT_IN_APPEARANCE);
 
   useEffect(() => {
     const timer = window.setInterval(() => setElapsedMs((elapsed) => elapsed + 100), 100);
@@ -25,7 +25,12 @@ export function PetPreview({ pet, displayName }: { pet: PetChangedPayload; displ
 
   useEffect(() => {
     if (!pet.spritesheetPath) {
-      setAppearance(BUILT_IN_APPEARANCE);
+      const builtIn = BUILT_IN_PETS.find((candidate) => candidate.id === pet.id);
+      setAppearance(
+        builtIn
+          ? { spritesheetUrl: builtIn.spritesheetUrl, spriteVersionNumber: builtIn.spriteVersionNumber }
+          : DEFAULT_BUILT_IN_APPEARANCE,
+      );
       return;
     }
 
@@ -42,7 +47,7 @@ export function PetPreview({ pet, displayName }: { pet: PetChangedPayload; displ
     return () => {
       active = false;
     };
-  }, [pet.spriteVersionNumber, pet.spritesheetPath]);
+  }, [pet.id, pet.spriteVersionNumber, pet.spritesheetPath]);
 
   const animation = useMemo(() => showcaseAnimation(elapsedMs), [elapsedMs]);
   const versionLabel = pet.version === "local" ? "local" : `v${pet.version}`;

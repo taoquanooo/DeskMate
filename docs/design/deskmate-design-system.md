@@ -40,4 +40,4 @@ Concept reference: `deskmate-settings-concept.png` (generated from the approved 
 - 桌宠 / 提醒 / 宠物库 / 关于
 - 大小 / 移动速度 / 自动漫游 / 始终置顶 / 全屏时隐藏 / 点击穿透
 - 起来走走吧
-- 杨皓 · v1.0.0 / 已是最新版本
+- 默认伙伴 · v1.0.0 / 已是最新版本

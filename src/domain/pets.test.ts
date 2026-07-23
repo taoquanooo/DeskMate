@@ -6,7 +6,7 @@ describe("Codex v2 pet contract", () => {
     expect(
       validatePetManifest({
         id: "yanghao",
-        displayName: "杨皓",
+        displayName: "默认伙伴",
         description: "工作室吉祥物",
         spriteVersionNumber: 2,
         spritesheetPath: "spritesheet.webp",
@@ -42,7 +42,7 @@ describe("Codex v2 pet contract", () => {
           {
             id: "yanghao",
             version: "1.0.0",
-            displayName: "杨皓",
+            displayName: "默认伙伴",
             description: "工作室吉祥物",
             author: "DeskMate Studio",
             assetLicense: "All Rights Reserved",

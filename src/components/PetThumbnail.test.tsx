@@ -39,9 +39,9 @@ afterEach(() => {
 
 describe("PetThumbnail", () => {
   it("renders the built-in pet's static idle atlas frame", () => {
-    render(<PetThumbnail displayName="杨皓" spriteVersionNumber={2} />);
+    render(<PetThumbnail displayName="默认伙伴" spriteVersionNumber={2} />);
 
-    expect(screen.getByRole("img", { name: "杨皓预览" })).toHaveStyle({
+    expect(screen.getByRole("img", { name: "默认伙伴预览" })).toHaveStyle({
       backgroundImage: "url(/pets/yanghao/spritesheet.webp)",
     });
   });
