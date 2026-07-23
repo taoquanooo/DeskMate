@@ -1,57 +1,84 @@
-# DeskMate
+<p align="center">
+  <img src="assets/branding/app-icon-source.png" width="160" alt="DeskMate logo" />
+</p>
 
-DeskMate 是一个开源的 Windows 桌宠：默认伙伴会在多显示器桌面上漫游、看向鼠标、回应点击，并用安静的小气泡提醒你喝水、远眺和活动。
+<h1 align="center">DeskMate</h1>
 
-![DeskMate 设置页](docs/design/deskmate-settings-final.jpg)
+<p align="center">
+  <b>一个安静陪伴你的 Windows 开源桌宠</b>
+</p>
 
-## 功能
+<p align="center">
+  默认伙伴会在多显示器桌面上漫游、看向鼠标、回应点击，并用安静的小气泡提醒你喝水、远眺和活动。
+</p>
 
-- Tauri 2 + React/TypeScript，三个独立窗口：桌宠、提醒气泡、设置。
-- 透明置顶、拖动、单击跳跃、双击挥手、右键随机动作、16 向注视、跨屏漫游和任务栏避让。
-- 开机启动、单实例、系统托盘、全局召回/点击穿透快捷键。
-- 本地间隔或固定时间提醒；睡眠、拖动和全屏期间不会补发历史提醒。
-- 官方 GitHub Pages 宠物目录；宠物包验证 HTTPS、SHA-256、大小、ZIP 路径、白名单、清单和 Codex v1/v2 WebP 图集。
-- 本机自定义宠物文件夹；无需打包或上传，重新扫描后即可选择使用。
-- GitHub Releases 程序更新；更新产物使用 Tauri 密钥签名。
-- 无账号、无云同步、无遥测、无声音。
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/taoquanooo/DeskMate" alt="License" /></a>
+  <a href="https://github.com/taoquanooo/DeskMate/releases/latest"><img src="https://img.shields.io/github/v/release/taoquanooo/DeskMate" alt="Latest release" /></a>
+  <a href="https://github.com/taoquanooo/DeskMate/releases"><img src="https://img.shields.io/github/downloads/taoquanooo/DeskMate/total" alt="Total downloads" /></a>
+  <a href="https://github.com/taoquanooo/DeskMate/stargazers"><img src="https://img.shields.io/github/stars/taoquanooo/DeskMate" alt="Stars" /></a>
+</p>
 
-## 系统要求
+<p align="center">
+  <img src="https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white" alt="Windows" />
+  <img src="https://img.shields.io/badge/Built%20with-Tauri-24C8D8?logo=tauri" alt="Tauri" />
+  <img src="https://img.shields.io/badge/React-61DAFB?logo=react&logoColor=black" alt="React" />
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white" alt="Rust" />
+</p>
 
-- Windows 10/11 x64
-- 系统 WebView2 Runtime（Windows 10/11 通常已安装；安装包不内置 127 MB 离线运行时）
+<p align="center">
+  <a href="https://github.com/taoquanooo/DeskMate/actions/workflows/build-windows.yml"><img src="https://github.com/taoquanooo/DeskMate/actions/workflows/build-windows.yml/badge.svg" alt="Windows build" /></a>
+  <a href="https://github.com/taoquanooo/DeskMate/actions/workflows/release.yml"><img src="https://github.com/taoquanooo/DeskMate/actions/workflows/release.yml/badge.svg" alt="Release" /></a>
+  <a href="https://github.com/taoquanooo/DeskMate/actions/workflows/publish-pets.yml"><img src="https://github.com/taoquanooo/DeskMate/actions/workflows/publish-pets.yml/badge.svg" alt="Publish pets" /></a>
+</p>
 
-首批公开构建暂不使用商业 Windows 代码签名，SmartScreen 可能显示提示；Tauri 应用更新产物仍必须使用项目私钥签名。
+<p align="center">
+  <a href="https://github.com/taoquanooo/DeskMate/releases"><strong>⬇️ 下载最新版</strong></a> ·
+  <a href="#-功能特性"><strong>功能特性</strong></a> ·
+  <a href="#-本地开发"><strong>本地开发</strong></a> ·
+  <a href="#-导入自己的宠物"><strong>导入宠物</strong></a>
+</p>
 
-## 本地开发
+<p align="center">
+  <img src="assets/branding/preview.png" width="720" alt="DeskMate 设置页预览" />
+</p>
 
-日常修改界面和业务逻辑只需要 Node.js 22+ 与 pnpm 11，不必安装 Visual Studio Build Tools：
+---
 
-```powershell
-pnpm install --frozen-lockfile
-pnpm verify
-pnpm dev
-```
+## ✨ 功能特性
 
-浏览器可使用 `?view=settings`、`?view=pet`、`?view=bubble` 或 `?view=onboarding` 查看各窗口。
+- **🪟 三窗口架构**：基于 Tauri 2 + React / TypeScript，独立管理桌宠、提醒气泡和设置窗口。
+- **🐾 灵动交互**：透明置顶、自由拖动、单击跳跃、双击挥手、右键随机动作、16 向注视、跨屏漫游与任务栏避让。
+- **⚙️ 系统集成**：开机自启、单实例运行、系统托盘、全局召回 / 点击穿透快捷键。
+- **⏰ 智能提醒**：本地间隔或固定时间提醒；睡眠、拖动和全屏期间不会补发历史提醒。
+- **🌐 官方宠物目录**：通过 HTTPS 从 GitHub Pages 发现、验证并下载官方在线宠物。
+- **🔐 安全校验**：宠物包验证 HTTPS、SHA-256、大小、ZIP 路径、白名单、清单和 Codex v1 / v2 WebP 图集。
+- **📁 自定义宠物**：本机自定义宠物文件夹，无需打包或上传，重新扫描后即可选择使用。
+- **🔄 自动更新**：通过 GitHub Releases 获取程序更新，更新产物使用 Tauri 密钥签名。
+- **🔒 隐私优先**：无账号、无云同步、无遥测、无声音。
 
-需要调试原生窗口时，才需要额外安装 Rust stable 和 Tauri 的 Windows C++ 构建依赖，然后运行：
+## 📥 下载安装
 
-```powershell
-pnpm tauri dev
-```
+1. 前往 [**GitHub Releases**](https://github.com/taoquanooo/DeskMate/releases/latest)。
+2. 下载 `DeskMate_x.x.x_x64-setup.exe`。
+3. 运行安装程序，按提示完成安装。
 
-## 云端 Windows 构建
+> 首批公开构建暂不使用商业 Windows 代码签名，首次运行时 Windows SmartScreen 可能显示提示，点击“更多信息” → “仍要运行”即可。Tauri 应用更新产物仍必须使用项目私钥签名。
 
-本机无需安装约 6–7 GB 的 Windows 编译工具。推送 `main`、`feature/**` 分支或打开 PR 会在 GitHub Actions 的 `windows-latest` runner 上运行完整前端检查、Rust 测试并生成 x64 NSIS 安装包。
+## 💻 系统要求
 
-也可以在仓库的 **Actions → Windows preview → Run workflow** 手动选择分支构建。完成后在该次运行的 **Artifacts** 区域下载 `DeskMate-Windows-x64`；测试安装包保留 14 天，并且暂未进行商业 Windows 代码签名。
+- Windows 10 / 11 x64
+- 系统 WebView2 Runtime（Windows 10 / 11 通常已安装；安装包不内置 127 MB 离线运行时）
 
-## 快捷键
+## ⌨️ 快捷键
 
-- `Ctrl + Alt + M`：召回桌宠
-- `Ctrl + Alt + P`：切换整窗点击穿透
+| 快捷键 | 功能 |
+| --- | --- |
+| `Ctrl + Alt + M` | 召回桌宠 |
+| `Ctrl + Alt + P` | 切换整窗点击穿透 |
 
-## 导入自己的宠物
+## 🐾 导入自己的宠物
 
 打开 **设置 → 宠物库 → 打开自定义宠物文件夹**。DeskMate 会使用应用数据目录下的 `custom-pets`，避免 Windows 安装目录的写入权限问题，也不会在升级应用时被覆盖。每只宠物单独放在一个子文件夹：
 
@@ -78,19 +105,7 @@ custom-pets/
 
 点击“重新扫描”后即可在宠物库选择。`id` 只能使用小写英文字母、数字和短横线；图集必须是带透明通道的 Codex WebP：v1 为 1536×1872（8×9），v2 为 1536×2288（8×11）。旧版 v1 清单可以不写 `spriteVersionNumber`，DeskMate 会按尺寸识别；由于 v1 没有 16 向注视帧，运行时会自动回退到 idle 动画。无效文件夹会单独显示错误，不影响其他宠物。
 
-## 发布
-
-推送 `vX.Y.Z` 标签会触发 Windows x64 NSIS 构建、Tauri 更新签名、GitHub Release、`latest.json` 以及 GitHub Pages 宠物目录发布。仓库需要配置：
-
-- `TAURI_SIGNING_PRIVATE_KEY`（Actions Secret）
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（Actions Secret）
-- `TAURI_SIGNING_PUBLIC_KEY`（Actions Secret；它不是机密，但以同一入口管理）
-
-首次启用 Pages 时，将 Source 设为 **GitHub Actions**。
-
-试用版发布前按 [发布验收清单](docs/release-checklist.md) 在至少三台不同 DPI/多屏电脑上连续验证三个工作日。
-
-## 在线官方宠物
+## 🌐 在线官方宠物
 
 随安装包内置的宠物（默认伙伴、Lev-neon）存放在 `public/pets/`，修改它们需要发布新的应用版本。
 
@@ -104,12 +119,54 @@ online-pets/
    └─ ASSET_LICENSE.txt  # 可选
 ```
 
-`pet.json` 可省略 `version`（默认 `1.0.0`）、`author`、`assetLicense` 和 `minAppVersion`（默认 `0.1.1`）。`spriteVersionNumber` 也可省略——生成器按 WebP 尺寸自动识别 v1/v2。
+`pet.json` 可省略 `version`（默认 `1.0.0`）、`author`、`assetLicense` 和 `minAppVersion`（默认 `0.1.1`）。`spriteVersionNumber` 也可省略——生成器按 WebP 尺寸自动识别 v1 / v2。
 
 推送 `online-pets/`、`scripts/build-online-pets.mjs` 或 `catalog/` 的改动到 `main` 分支后，`publish-pets.yml` 工作流自动运行生成器、将 ZIP 上传到 `pets-v1` Release、并部署 GitHub Pages 目录。该工作流不安装 Rust、不构建应用，在数十秒内完成。手动触发可在仓库的 **Actions → Publish pets → Run workflow** 进行。
 
 新增或更新在线宠物不需要重新发布 DeskMate 应用本身。应用通过 `catalog.json` 发现宠物，通过 `pets-v1` Release 下载不可变 ZIP。
 
-## 许可证
+## 🛠️ 本地开发
+
+日常修改界面和业务逻辑只需要 Node.js 22+ 与 pnpm 11，不必安装 Visual Studio Build Tools：
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm verify
+pnpm dev
+```
+
+浏览器可使用 `?view=settings`、`?view=pet`、`?view=bubble` 或 `?view=onboarding` 查看各窗口。
+
+需要调试原生窗口时，才需要额外安装 Rust stable 和 Tauri 的 Windows C++ 构建依赖，然后运行：
+
+```powershell
+pnpm tauri dev
+```
+
+## ☁️ 云端 Windows 构建
+
+本机无需安装约 6–7 GB 的 Windows 编译工具。推送 `main`、`feature/**` 分支或打开 PR 会在 GitHub Actions 的 `windows-latest` runner 上运行完整前端检查、Rust 测试并生成 x64 NSIS 安装包。
+
+也可以在仓库的 **Actions → Windows preview → Run workflow** 手动选择分支构建。完成后在该次运行的 **Artifacts** 区域下载 `DeskMate-Windows-x64`；测试安装包保留 14 天，并且暂未进行商业 Windows 代码签名。
+
+## 🚀 发布
+
+推送 `vX.Y.Z` 标签会触发 Windows x64 NSIS 构建、Tauri 更新签名、GitHub Release、`latest.json` 以及 GitHub Pages 宠物目录发布。仓库需要配置：
+
+- `TAURI_SIGNING_PRIVATE_KEY`（Actions Secret）
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（Actions Secret）
+- `TAURI_SIGNING_PUBLIC_KEY`（Actions Secret；它不是机密，但以同一入口管理）
+
+首次启用 Pages 时，将 Source 设为 **GitHub Actions**。
+
+试用版发布前按 [发布验收清单](docs/release-checklist.md) 在至少三台不同 DPI / 多屏电脑上连续验证三个工作日。
+
+## 📄 许可证
 
 程序代码采用 [MIT](LICENSE)。默认伙伴素材不适用 MIT，见 [独立素材许可](assets/pets/yanghao/ASSET_LICENSE.txt)。
+
+---
+
+<p align="center">
+  用 DeskMate 给桌面添一位小伙伴吧 🐾
+</p>
