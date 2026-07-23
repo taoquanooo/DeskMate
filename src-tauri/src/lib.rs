@@ -780,10 +780,7 @@ fn install_downloaded_package(
         chrono::Utc::now().timestamp_millis()
     ));
     pets::extract_validated_package(package, &staging).map_err(|error| error.to_string())?;
-    let manifest: pets::PetManifestV2 = serde_json::from_slice(
-        &std::fs::read(staging.join("pet.json")).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
+    let (manifest, _) = pets::load_pet_directory(&staging)?;
     if manifest.id != entry.id {
         let _ = std::fs::remove_dir_all(&staging);
         return Err("pet manifest id does not match the catalog".into());
@@ -845,15 +842,14 @@ fn resolve_pet_payload(
         let (manifest, spritesheet) = pets::find_local_pet(&custom_pets_root(app), id)?;
         (spritesheet, manifest.sprite_version_number)
     } else {
-        (
-            app.state::<AppState>()
+        pets::load_pet_directory(
+            &app.state::<AppState>()
                 .data_dir
                 .join("pets")
                 .join(id)
-                .join(version)
-                .join("spritesheet.webp"),
-            2,
+                .join(version),
         )
+        .map(|(manifest, spritesheet)| (spritesheet, manifest.sprite_version_number))?
     };
     if !spritesheet.is_file() {
         return Err("pet version is not installed".into());

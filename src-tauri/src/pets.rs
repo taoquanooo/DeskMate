@@ -9,6 +9,7 @@ use std::{
 };
 
 pub const ALLOWED_FILES: [&str; 3] = ["pet.json", "spritesheet.webp", "ASSET_LICENSE.txt"];
+const REQUIRED_FILES: [&str; 2] = ["pet.json", "spritesheet.webp"];
 const REQUIRED_FRAME_COUNTS: [usize; 11] = [6, 8, 8, 4, 5, 8, 6, 6, 6, 8, 8];
 const ATLAS_WIDTH: u32 = 1536;
 const V1_ATLAS_HEIGHT: u32 = 1872;
@@ -42,7 +43,8 @@ pub struct PetManifestV2 {
     pub id: String,
     pub display_name: String,
     pub description: String,
-    pub sprite_version_number: u8,
+    #[serde(default)]
+    pub sprite_version_number: Option<u8>,
     pub spritesheet_path: String,
 }
 
@@ -188,10 +190,15 @@ pub fn find_local_pet(root: &Path, id: &str) -> Result<(ValidatedLocalPet, PathB
         .find(|pet| pet.id == id)
         .ok_or_else(|| format!("找不到有效的本地宠物 {id}"))?;
     let directory = root.join(&pet.folder_name);
-    let manifest = validate_local_pet_directory(&directory)?;
+    let (manifest, spritesheet) = load_pet_directory(&directory)?;
     if manifest.id != id {
         return Err("宠物文件在扫描后发生了变化，请重新扫描".into());
     }
+    Ok((manifest, spritesheet))
+}
+
+pub fn load_pet_directory(directory: &Path) -> Result<(ValidatedLocalPet, PathBuf), String> {
+    let manifest = validate_local_pet_directory(directory)?;
     Ok((manifest, directory.join("spritesheet.webp")))
 }
 
@@ -249,8 +256,8 @@ pub fn validate_catalog(
         .map_err(|_| "generatedAt must be RFC 3339")?;
     let mut entries = HashSet::new();
     for pet in &catalog.pets {
-        if pet.sprite_version_number != 2 {
-            return Err(format!("{} must use sprite v2", pet.id));
+        if !matches!(pet.sprite_version_number, 1 | 2) {
+            return Err(format!("{} must use sprite v1 or v2", pet.id));
         }
         if !entries.insert(format!("{}@{}", pet.id, pet.version)) {
             return Err("duplicate catalog entry".into());
@@ -310,15 +317,15 @@ pub fn validate_package(path: &Path, maximum_bytes: u64) -> Result<(), PackageEr
             return Err(PackageError::TooLarge);
         }
     }
-    for required in ALLOWED_FILES {
+    for required in REQUIRED_FILES {
         if !seen.contains(required) {
             return Err(PackageError::MissingFile(required.into()));
         }
     }
     let manifest = read_entry(&mut zip, "pet.json", 64 * 1024)?;
-    validate_manifest(&manifest)?;
+    let manifest = validate_manifest(&manifest)?;
     let spritesheet = read_entry(&mut zip, "spritesheet.webp", maximum_bytes as usize)?;
-    validate_spritesheet(&spritesheet, 2)?;
+    validate_local_spritesheet(&spritesheet, manifest.sprite_version_number)?;
     Ok(())
 }
 
@@ -327,11 +334,17 @@ pub fn extract_validated_package(path: &Path, destination: &Path) -> Result<(), 
     let file = File::open(path).map_err(io_error)?;
     let mut zip =
         zip::ZipArchive::new(file).map_err(|error| PackageError::Io(error.to_string()))?;
-    for name in ALLOWED_FILES {
+    for name in REQUIRED_FILES {
         let mut source = zip
             .by_name(name)
             .map_err(|_| PackageError::MissingFile(name.into()))?;
         let mut destination_file = File::create(destination.join(name)).map_err(io_error)?;
+        io::copy(&mut source, &mut destination_file).map_err(io_error)?;
+        destination_file.sync_all().map_err(io_error)?;
+    }
+    if let Ok(mut source) = zip.by_name("ASSET_LICENSE.txt") {
+        let mut destination_file =
+            File::create(destination.join("ASSET_LICENSE.txt")).map_err(io_error)?;
         io::copy(&mut source, &mut destination_file).map_err(io_error)?;
         destination_file.sync_all().map_err(io_error)?;
     }
@@ -362,7 +375,7 @@ fn validate_manifest(bytes: &[u8]) -> Result<PetManifestV2, PackageError> {
     if !valid_id
         || manifest.display_name.trim().is_empty()
         || manifest.description.trim().is_empty()
-        || manifest.sprite_version_number != 2
+        || !matches!(manifest.sprite_version_number, None | Some(1 | 2))
         || manifest.spritesheet_path != "spritesheet.webp"
     {
         return Err(PackageError::InvalidManifest);
@@ -385,11 +398,6 @@ fn validate_local_spritesheet(
     }
     validate_decoded_spritesheet(&image, detected_version)?;
     Ok(detected_version)
-}
-
-fn validate_spritesheet(bytes: &[u8], sprite_version_number: u8) -> Result<(), PackageError> {
-    let image = decode_spritesheet(bytes)?;
-    validate_decoded_spritesheet(&image, sprite_version_number)
 }
 
 fn decode_spritesheet(bytes: &[u8]) -> Result<image::DynamicImage, PackageError> {
@@ -460,7 +468,7 @@ mod tests {
         scan_local_pets, validate_package, PackageError, ATLAS_WIDTH, CELL_HEIGHT, CELL_WIDTH,
         REQUIRED_FRAME_COUNTS, V1_ATLAS_HEIGHT, V2_ATLAS_HEIGHT,
     };
-    use std::io::Write;
+    use std::io::{Cursor, Write};
 
     fn write_zip(path: &std::path::Path, names: &[&str]) {
         let file = std::fs::File::create(path).unwrap();
@@ -524,6 +532,117 @@ mod tests {
                 image::ExtendedColorType::Rgba8,
             )
             .unwrap();
+    }
+
+    fn spritesheet_bytes(version: u8) -> Vec<u8> {
+        let (height, frame_counts) = match version {
+            1 => (V1_ATLAS_HEIGHT, &REQUIRED_FRAME_COUNTS[..9]),
+            2 => (V2_ATLAS_HEIGHT, &REQUIRED_FRAME_COUNTS[..]),
+            _ => panic!("unsupported test sprite version"),
+        };
+        let mut atlas = image::RgbaImage::new(ATLAS_WIDTH, height);
+        for (row, frame_count) in frame_counts.iter().copied().enumerate() {
+            for column in 0..frame_count {
+                atlas.put_pixel(
+                    column as u32 * CELL_WIDTH + CELL_WIDTH / 2,
+                    row as u32 * CELL_HEIGHT + CELL_HEIGHT / 2,
+                    image::Rgba([255, 255, 255, 255]),
+                );
+            }
+        }
+        let mut bytes = Cursor::new(Vec::new());
+        image::codecs::webp::WebPEncoder::new_lossless(&mut bytes)
+            .encode(
+                atlas.as_raw(),
+                ATLAS_WIDTH,
+                height,
+                image::ExtendedColorType::Rgba8,
+            )
+            .unwrap();
+        bytes.into_inner()
+    }
+
+    fn write_pet_package(
+        path: &std::path::Path,
+        declared_version: Option<u8>,
+        atlas_version: u8,
+        with_license: bool,
+    ) {
+        let file = std::fs::File::create(path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let manifest = match declared_version {
+            Some(version) => format!(
+                r#"{{"id":"online-pet","displayName":"Online Pet","description":"Downloaded test pet","spriteVersionNumber":{version},"spritesheetPath":"spritesheet.webp"}}"#
+            ),
+            None => r#"{"id":"online-pet","displayName":"Online Pet","description":"Downloaded test pet","spritesheetPath":"spritesheet.webp"}"#.into(),
+        };
+        zip.start_file("pet.json", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(manifest.as_bytes()).unwrap();
+        zip.start_file("spritesheet.webp", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(&spritesheet_bytes(atlas_version)).unwrap();
+        if with_license {
+            zip.start_file(
+                "ASSET_LICENSE.txt",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+            zip.write_all(b"test license").unwrap();
+        }
+        zip.finish().unwrap();
+    }
+
+    #[test]
+    fn accepts_v1_package_without_license() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("pet.zip");
+        write_pet_package(&path, None, 1, false);
+
+        assert_eq!(validate_package(&path, 25 * 1024 * 1024), Ok(()));
+    }
+
+    #[test]
+    fn accepts_v2_package_with_license() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("pet.zip");
+        write_pet_package(&path, Some(2), 2, true);
+
+        assert_eq!(validate_package(&path, 25 * 1024 * 1024), Ok(()));
+    }
+
+    #[test]
+    fn rejects_v2_manifest_with_v1_atlas() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("pet.zip");
+        write_pet_package(&path, Some(2), 1, false);
+
+        assert_eq!(
+            validate_package(&path, 25 * 1024 * 1024),
+            Err(PackageError::InvalidSpritesheet)
+        );
+    }
+
+    #[test]
+    fn rejects_unexpected_file_from_downloaded_package() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("pet.zip");
+        write_pet_package(&path, Some(2), 2, false);
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        let mut zip = zip::ZipWriter::new_append(file).unwrap();
+        zip.start_file("surprise.txt", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"not allowed").unwrap();
+        zip.finish().unwrap();
+
+        assert_eq!(
+            validate_package(&path, 25 * 1024 * 1024),
+            Err(PackageError::UnexpectedFile("surprise.txt".into()))
+        );
     }
 
     #[test]
