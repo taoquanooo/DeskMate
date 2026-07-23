@@ -83,7 +83,10 @@ impl SettingsV1 {
             .retain(|pet| seen.insert((pet.id.clone(), pet.version.clone())));
         self.selected_pets.truncate(MAX_ACTIVE_PETS);
         if self.selected_pets.is_empty() {
-            self.selected_pets = Self::default().selected_pets;
+            self.selected_pets = vec![SelectedPet {
+                id: "yanghao".into(),
+                version: "1.0.0".into(),
+            }];
         }
         self.selected_pet = self.selected_pets[0].clone();
         self.reminders.retain(|item| {
@@ -184,8 +187,11 @@ fn default_value() -> Value {
         "schemaVersion": 1,
         "onboardingComplete": false,
         "autostartEnabled": true,
+        // NOTE: `selectedPets` is intentionally absent here. Legacy settings
+        // files only carry `selectedPet`; if the defaults injected a
+        // `selectedPets` list, merge_json would keep it and sanitize() would
+        // never migrate the user's legacy single selection.
         "selectedPet": { "id": "yanghao", "version": "1.0.0" },
-        "selectedPets": [{ "id": "yanghao", "version": "1.0.0" }],
         "pet": {
             "scale": 1.0,
             "speed": 80.0,
