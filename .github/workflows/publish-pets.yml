@@ -1,0 +1,47 @@
+name: Publish pets
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "online-pets/**"
+      - "scripts/build-online-pets.mjs"
+      - "catalog/**"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: publish-pets
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build pet catalog and packages
+        run: node scripts/build-online-pets.mjs --source online-pets --output output --repository taoquanooo/DeskMate --release-tag pets-v1
+      - name: Upload pet packages to pets-v1 release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pets-v1
+          files: output/packages/*.zip
+          fail_on_unmatched_files: true
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: output/pages
+      - id: pages
+        uses: actions/deploy-pages@v4
