@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Heart } from "lucide-react";
 import { petAssetUrl } from "../lib/tauri";
 import { PetSprite } from "./PetSprite";
 
@@ -88,7 +87,7 @@ export function PetThumbnail({
 function UnavailableThumbnail({ label }: { label: string }) {
   return (
     <div aria-label={`${label}暂不可用`} className="pet-thumbnail pet-thumbnail-placeholder" role="img">
-      <Heart aria-hidden="true" fill="currentColor" size={28} />
+      <img alt="" aria-hidden="true" src="/pet-placeholder.svg" />
     </div>
   );
 }

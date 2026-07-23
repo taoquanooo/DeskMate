@@ -28,9 +28,25 @@ export interface PetChangedPayload {
   spritesheetPath?: string | null;
 }
 
+export interface InstalledPet {
+  id: string;
+  version: string;
+  displayName: string;
+  spriteVersionNumber: 1 | 2;
+  spritesheetPath: string;
+}
+
+export interface InstallProgress {
+  id: string;
+  version: string;
+  downloaded: number;
+  total: number;
+}
+
 export const PROJECT_URL = "https://github.com/taoquanooo/DeskMate";
 export const PET_GALLERY_URL = "https://codex-pet.org/zh/";
 export const PETDEX_URL = "https://petdex.dev/";
+export const LOCAL_PET_PLACEHOLDER = "/pet-placeholder.svg";
 
 export const BUILT_IN_PETS = [
   {
@@ -78,6 +94,11 @@ export async function petCatalogRefresh(): Promise<PetCatalogV1> {
 
 export async function petInstall(id: string, version: string) {
   return invoke("pet_install", { id, version });
+}
+
+export async function installedPets(): Promise<InstalledPet[]> {
+  if (!isTauri()) return [];
+  return invoke<InstalledPet[]>("installed_pets");
 }
 
 export async function petSelect(id: string, version: string) {

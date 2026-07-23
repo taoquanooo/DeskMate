@@ -22,6 +22,8 @@ import {
   PETDEX_URL,
   PET_GALLERY_URL,
   PROJECT_URL,
+  type InstallProgress,
+  type InstalledPet,
   type PetChangedPayload,
 } from "../lib/tauri";
 import { PetPreview } from "./PetPreview";
@@ -46,6 +48,8 @@ export interface SettingsAppProps {
   onInstallUpdate?: () => void;
   catalog?: PetCatalogV1 | null;
   catalogError?: string | null;
+  installedPets?: InstalledPet[];
+  installProgress?: Record<string, InstallProgress>;
   onCatalogRefresh?: () => void;
   onPetInstall?: (id: string, version: string) => void;
   onPetSelect?: (id: string, version: string) => void;
@@ -79,6 +83,8 @@ export function SettingsApp({
   onInstallUpdate,
   catalog,
   catalogError,
+  installedPets = [],
+  installProgress = {},
   onCatalogRefresh,
   onPetInstall,
   onPetSelect,
@@ -141,8 +147,18 @@ export function SettingsApp({
         </nav>
         <div className="sidebar-footer">
           <span className="status-dot" />
-          运行中
-          <small>DeskMate v0.1.1</small>
+          <span className="sidebar-footer-info">
+            运行中
+            <small>DeskMate v0.1.1</small>
+          </span>
+          <button
+            type="button"
+            className="sidebar-check-update"
+            onClick={onCheckUpdates}
+            disabled={updateUi?.state === "checking"}
+          >
+            {updateUi?.state === "checking" ? "检查中…" : "检查更新"}
+          </button>
         </div>
       </aside>
       <section className="settings-main">
@@ -171,6 +187,8 @@ export function SettingsApp({
             onRefresh={onCatalogRefresh}
             onInstall={onPetInstall}
             onSelect={onPetSelect}
+            installedPets={installedPets}
+            installProgress={installProgress}
             localPets={localPets}
             localPetFolder={localPetFolder}
             localPetErrors={localPetErrors}
@@ -392,6 +410,8 @@ function PetLibrary({
   onRefresh,
   onInstall,
   onSelect,
+  installedPets = [],
+  installProgress = {},
   localPets,
   localPetFolder,
   localPetErrors,
@@ -407,6 +427,8 @@ function PetLibrary({
   onRefresh?: () => void;
   onInstall?: (id: string, version: string) => void;
   onSelect?: (id: string, version: string) => void;
+  installedPets?: InstalledPet[];
+  installProgress?: Record<string, InstallProgress>;
   localPets: LocalPetV1[];
   localPetFolder?: string;
   localPetErrors: string[];
@@ -427,7 +449,7 @@ function PetLibrary({
           <small>下载后放入下方文件夹；DeskMate 会自动识别 Codex v1 / v2 图集。</small>
         </div>
         <a
-          className="button button-primary"
+          className="button button-secondary"
           href={PET_GALLERY_URL}
           onClick={(event) => {
             event.preventDefault();
@@ -506,7 +528,9 @@ function PetLibrary({
       ))}
       <div className="library-toolbar">
         <span>
-          {error ? "暂时无法连接官方目录，内置宠物仍可使用。" : "宠物包在安装前会验证哈希与图集结构。"}
+          {error
+            ? "通过 GitHub 刷新官方宠物目录。"
+            : "官方 GitHub 预置宠物可刷新目录查看。宠物包在安装前会验证哈希与图集结构。"}
         </span>
         <button className="button button-secondary" onClick={onRefresh}>
           <RefreshCw size={15} />
@@ -540,28 +564,58 @@ function PetLibrary({
         .filter(
           (pet) => !BUILT_IN_PETS.some((builtIn) => builtIn.id === pet.id && builtIn.version === pet.version),
         )
-        .map((pet) => (
-          <article className="catalog-pet-row" key={`${pet.id}@${pet.version}`}>
-            <PetThumbnail displayName={pet.displayName} previewUrl={pet.previewUrl} />
-            <div className="pet-library-copy">
-              <strong>
-                {pet.displayName} · v{pet.version}
-              </strong>
-              <p>{pet.description}</p>
-              <small>
-                {pet.author} · {pet.assetLicense}
-              </small>
-            </div>
-            <div className="pet-library-actions">
-              <button className="button button-secondary" onClick={() => onInstall?.(pet.id, pet.version)}>
-                下载
-              </button>
-              <button className="button button-primary" onClick={() => onSelect?.(pet.id, pet.version)}>
-                使用
-              </button>
-            </div>
-          </article>
-        ))}
+        .map((pet) => {
+          const installed = installedPets.find((item) => item.id === pet.id && item.version === pet.version);
+          const progress = installProgress[`${pet.id}@${pet.version}`];
+          const isDownloading = Boolean(progress);
+          const percent =
+            progress && progress.total > 0
+              ? Math.min(100, Math.round((progress.downloaded / progress.total) * 100))
+              : 0;
+          return (
+            <article className="catalog-pet-row" key={`${pet.id}@${pet.version}`}>
+              <PetThumbnail
+                displayName={pet.displayName}
+                previewUrl={installed ? undefined : pet.previewUrl}
+                spritesheetPath={installed?.spritesheetPath}
+                spriteVersionNumber={installed?.spriteVersionNumber ?? pet.spriteVersionNumber}
+              />
+              <div className="pet-library-copy">
+                <strong>
+                  {pet.displayName} · v{pet.version}
+                </strong>
+                <p>{pet.description}</p>
+                <small>
+                  {pet.author} · {pet.assetLicense}
+                </small>
+              </div>
+              <div className="pet-library-actions">
+                {installed ? (
+                  <>
+                    <span className="installed-label">已下载</span>
+                    <button className="button button-primary" onClick={() => onSelect?.(pet.id, pet.version)}>
+                      使用
+                    </button>
+                  </>
+                ) : progress ? (
+                  <div className="download-progress" role="progressbar" aria-valuenow={percent}>
+                    <span>{progress.total > 0 ? `下载中 ${percent}%` : "准备下载…"}</span>
+                    <div className="download-progress-bar">
+                      <span style={{ width: `${percent}%` }} />
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    className="button button-secondary"
+                    onClick={() => onInstall?.(pet.id, pet.version)}
+                  >
+                    下载
+                  </button>
+                )}
+              </div>
+            </article>
+          );
+        })}
     </>
   );
 }
@@ -626,6 +680,10 @@ function About({
           {updateState === "checking" ? "正在检查…" : "检查更新"}
         </button>
       </div>
+      <p className="about-update-source">
+        <Github size={13} />
+        更新来自 GitHub，检查或下载更新可能需要科学上网。
+      </p>
       {updateState === "up-to-date" && (
         <p className="about-update-status" role="status">
           已是最新版本。
