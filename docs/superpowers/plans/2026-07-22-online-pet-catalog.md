@@ -136,6 +136,11 @@ git commit -m "Support v1 pets in the online catalog"
 - Modify: `src/App.tsx`
 - Modify: `src/lib/tauri.ts`
 - Modify: `src/components/SettingsApp.tsx`
+- Modify: `src/components/Onboarding.tsx`
+- Modify: `assets/pets/yanghao/pet.json`
+- Modify: `public/pets/yanghao/pet.json`
+- Modify: `README.md`
+- Modify: user-facing design documentation containing the old display name
 - Modify: focused tests for the files above
 
 **Interfaces:**
@@ -168,6 +173,7 @@ Expected: FAIL because only Yanghao is recognized and listed as built-in, and bu
 - Ensure online catalog rows filter any catalog entry that duplicates either built-in id/version.
 - Add PetDex beside Codex Pet Gallery as a second recommended website; introduce a narrowly scoped Tauri command/TypeScript bridge that opens the fixed `https://petdex.dev/` URL in the system browser.
 - Preserve the default selected pet as Yanghao; this task adds a choice but does not migrate existing settings.
+- Keep the internal compatibility id `yanghao`, but remove the old Chinese personal name from every user-visible string, manifest display name, README, test expectation, and maintained documentation. Use `默认伙伴` as the neutral display name and make onboarding copy pet-agnostic.
 
 - [ ] **Step 4: Verify GREEN and assets**
 
