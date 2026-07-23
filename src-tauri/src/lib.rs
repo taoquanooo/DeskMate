@@ -29,6 +29,25 @@ const PET_GALLERY_URL: &str = "https://codex-pet.org/zh/";
 const PETDEX_URL: &str = "https://petdex.dev/";
 const BUILT_IN_PETS: [(&str, &str, u8); 2] = [("yanghao", "1.0.0", 2), ("lev-neon", "1.0.0", 2)];
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InstallProgressPayload {
+    id: String,
+    version: String,
+    downloaded: u64,
+    total: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InstalledPetV1 {
+    id: String,
+    version: String,
+    display_name: String,
+    sprite_version_number: u8,
+    spritesheet_path: String,
+}
+
 pub struct AppState {
     settings: Mutex<SettingsV1>,
     settings_store: SettingsStore,
@@ -133,6 +152,59 @@ async fn pet_install(app: tauri::AppHandle, id: String, version: String) -> Resu
         .find(|entry| entry.id == id && entry.version == version)
         .ok_or_else(|| format!("{id}@{version} is not in the official catalog"))?;
     install_entry(&app, &entry).await
+}
+
+#[tauri::command]
+async fn installed_pets(app: tauri::AppHandle) -> Result<Vec<InstalledPetV1>, String> {
+    let state = app.state::<AppState>();
+    let pets_root = state.data_dir.join("pets");
+    tauri::async_runtime::spawn_blocking(move || scan_installed_pets(&pets_root))
+        .await
+        .map_err(|error| format!("扫描已安装宠物失败：{error}"))?
+}
+
+fn scan_installed_pets(pets_root: &Path) -> Result<Vec<InstalledPetV1>, String> {
+    let mut installed = Vec::new();
+    let id_entries = match std::fs::read_dir(pets_root) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(installed),
+    };
+    for id_entry in id_entries.filter_map(Result::ok) {
+        if !id_entry
+            .file_type()
+            .map(|file_type| file_type.is_dir())
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let version_entries = match std::fs::read_dir(id_entry.path()) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+        for version_entry in version_entries.filter_map(Result::ok) {
+            if !version_entry
+                .file_type()
+                .map(|file_type| file_type.is_dir())
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            let version = version_entry.file_name().to_string_lossy().into_owned();
+            match pets::load_pet_directory(&version_entry.path()) {
+                Ok((manifest, spritesheet)) => {
+                    installed.push(InstalledPetV1 {
+                        id: manifest.id,
+                        version,
+                        display_name: manifest.display_name,
+                        sprite_version_number: manifest.sprite_version_number,
+                        spritesheet_path: spritesheet.display().to_string(),
+                    });
+                }
+                Err(_) => continue,
+            }
+        }
+    }
+    Ok(installed)
 }
 
 #[tauri::command]
@@ -464,6 +536,7 @@ pub fn run() {
             autostart_set,
             pet_catalog_refresh,
             pet_install,
+            installed_pets,
             pet_select,
             pet_local_refresh,
             pet_local_folder_open,
@@ -747,6 +820,8 @@ async fn install_entry(app: &tauri::AppHandle, entry: &PetCatalogEntryV1) -> Res
         return Err("pet download size does not match the catalog".into());
     }
     let mut stream = response.bytes_stream();
+    let total = entry.size_bytes;
+    let mut downloaded: u64 = 0;
     let mut bytes = Vec::with_capacity(entry.size_bytes.min(MAX_PET_PACKAGE_BYTES) as usize);
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| error.to_string())?;
@@ -754,6 +829,16 @@ async fn install_entry(app: &tauri::AppHandle, entry: &PetCatalogEntryV1) -> Res
             return Err("pet package is too large".into());
         }
         bytes.extend_from_slice(&chunk);
+        downloaded = downloaded.saturating_add(chunk.len() as u64);
+        let _ = app.emit(
+            "pet://install-progress",
+            InstallProgressPayload {
+                id: entry.id.clone(),
+                version: entry.version.clone(),
+                downloaded,
+                total,
+            },
+        );
     }
     if bytes.len() as u64 != entry.size_bytes {
         return Err("pet download size does not match the catalog".into());

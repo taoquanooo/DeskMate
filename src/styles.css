@@ -53,6 +53,11 @@ button {
 .pet-thumbnail-placeholder {
   color: var(--accent);
 }
+.pet-thumbnail-placeholder img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
 
 .settings-shell {
   min-height: 720px;
@@ -61,12 +66,17 @@ button {
   background: #fff;
 }
 .sidebar {
-  min-height: 720px;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  max-height: 100vh;
   padding: 27px 20px 24px;
   background: var(--subtle);
   border-right: 1px solid var(--divider);
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
 }
 .brand {
   display: flex;
@@ -130,16 +140,41 @@ button {
   margin-top: auto;
   padding: 14px 10px 0;
   border-top: 1px solid var(--divider);
-  display: grid;
-  grid-template-columns: 9px auto;
+  display: flex;
   align-items: center;
   gap: 7px;
   font-size: 13px;
   color: #5f5c58;
 }
+.sidebar-footer-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
 .sidebar-footer small {
-  grid-column: 2;
   color: var(--muted);
+  font-size: 11px;
+}
+.sidebar-check-update {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.sidebar-check-update:hover:not(:disabled) {
+  background: #f0efed;
+  color: var(--accent);
+}
+.sidebar-check-update:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 .status-dot {
   width: 7px;
@@ -497,6 +532,29 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.download-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--muted);
+  min-width: 96px;
+}
+.download-progress-bar {
+  width: 96px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--divider);
+  overflow: hidden;
+}
+.download-progress-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.2s ease;
 }
 .about-mark {
   margin-top: 45px;
@@ -877,6 +935,16 @@ body.view-bubble {
   text-align: center;
   font-size: 12.5px;
   color: #4e4944;
+}
+.about-update-source {
+  margin: -10px 0 16px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
 }
 .about-update-status[role="alert"] {
   color: #9b4e42;

@@ -10,6 +10,7 @@ import {
   customPetsDirPick,
   emitEvent,
   hideCurrentWindow,
+  installedPets,
   listenEvent,
   petRecall,
   petCatalogRefresh,
@@ -27,6 +28,8 @@ import {
   updaterCheck,
   updaterInstall,
   type BubblePayload,
+  type InstallProgress,
+  type InstalledPet,
   type PetChangedPayload,
   type UpdateStatus,
 } from "./lib/tauri";
@@ -53,6 +56,8 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
   });
   const [updateUi, setUpdateUi] = useState<UpdateUi>({ state: "idle" });
   const [currentPet, setCurrentPet] = useState<PetChangedPayload | null>(null);
+  const [installedPetList, setInstalledPetList] = useState<InstalledPet[]>([]);
+  const [installProgress, setInstallProgress] = useState<Record<string, InstallProgress>>({});
 
   useEffect(() => {
     let active = true;
@@ -124,6 +129,48 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
     return () => {
       active = false;
       disposeChanged?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    let disposedInstalled: (() => void) | undefined;
+    let disposedProgress: (() => void) | undefined;
+    const refreshInstalled = async () => {
+      try {
+        const list = await installedPets();
+        if (active) setInstalledPetList(list);
+      } catch {
+        // best-effort: installed list is supplemental
+      }
+    };
+    void refreshInstalled();
+    void listenEvent<{ id: string; version: string }>("pet://installed", (payload) => {
+      if (!active) return;
+      setInstallProgress((current) => {
+        const next = { ...current };
+        delete next[`${payload.id}@${payload.version}`];
+        return next;
+      });
+      void refreshInstalled();
+    }).then((dispose) => {
+      if (active) disposedInstalled = dispose;
+      else dispose();
+    });
+    void listenEvent<InstallProgress>("pet://install-progress", (progress) => {
+      if (!active) return;
+      setInstallProgress((current) => ({
+        ...current,
+        [`${progress.id}@${progress.version}`]: progress,
+      }));
+    }).then((dispose) => {
+      if (active) disposedProgress = dispose;
+      else dispose();
+    });
+    return () => {
+      active = false;
+      disposedInstalled?.();
+      disposedProgress?.();
     };
   }, []);
 
@@ -215,13 +262,26 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
       onInstallUpdate={installUpdate}
       catalog={catalog}
       catalogError={catalogError}
+      installedPets={installedPetList}
+      installProgress={installProgress}
       onCatalogRefresh={() => void refreshCatalog()}
-      onPetInstall={(id, version) =>
+      onPetInstall={(id, version) => {
+        setInstallProgress((current) => ({
+          ...current,
+          [`${id}@${version}`]: { id, version, downloaded: 0, total: 0 },
+        }));
         void petInstall(id, version).then(
           () => refreshCatalog(),
-          (error) => setCatalogError(`安装失败：${String(error)}`),
-        )
-      }
+          (error) => {
+            setInstallProgress((current) => {
+              const next = { ...current };
+              delete next[`${id}@${version}`];
+              return next;
+            });
+            setCatalogError(`安装失败：${String(error)}`);
+          },
+        );
+      }}
       onPetSelect={(id, version) =>
         void petSelect(id, version).then(
           () => setSettings((current) => (current ? { ...current, selectedPet: { id, version } } : current)),
