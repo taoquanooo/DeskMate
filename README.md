@@ -50,11 +50,12 @@
 
 - **🪟 三窗口架构**：基于 Tauri 2 + React / TypeScript，独立管理桌宠、提醒气泡和设置窗口。
 - **🐾 灵动交互**：透明置顶、自由拖动、单击跳跃、双击挥手、右键随机动作、16 向注视、跨屏漫游与任务栏避让。
+- **👥 多宠同屏**：最多同时显示 4 只桌宠，每只独立漫游、拖动和互动；重启后自动恢复上次的选择。
 - **⚙️ 系统集成**：开机自启、单实例运行、系统托盘、全局召回 / 点击穿透快捷键。
 - **⏰ 智能提醒**：本地间隔或固定时间提醒；睡眠、拖动和全屏期间不会补发历史提醒。
-- **🌐 官方宠物目录**：通过 HTTPS 从 GitHub Pages 发现、验证并下载官方在线宠物。
+- **🌐 官方宠物目录**：通过 HTTPS 从 GitHub Pages 发现、验证并下载官方在线宠物；Pages 不可达时自动改经 `api.github.com` 的 `pets-v1` Release 资产获取目录与宠物包。
 - **🔐 安全校验**：宠物包验证 HTTPS、SHA-256、大小、ZIP 路径、白名单、清单和 Codex v1 / v2 WebP 图集。
-- **📁 自定义宠物**：本机自定义宠物文件夹，无需打包或上传，重新扫描后即可选择使用。
+- **📁 自定义宠物**：本机自定义宠物文件夹，无需打包或上传，重新扫描后即可选择使用；自定义与已下载宠物均可一键删除释放空间。
 - **🔄 自动更新**：通过 GitHub Releases 获取程序更新，更新产物使用 Tauri 密钥签名。
 - **🔒 隐私优先**：无账号、无云同步、无遥测、无声音。
 
@@ -121,9 +122,9 @@ online-pets/
 
 `pet.json` 可省略 `version`（默认 `1.0.0`）、`author`、`assetLicense` 和 `minAppVersion`（默认 `0.1.1`）。`spriteVersionNumber` 也可省略——生成器按 WebP 尺寸自动识别 v1 / v2。
 
-推送 `online-pets/`、`scripts/build-online-pets.mjs` 或 `catalog/` 的改动到 `main` 分支后，`publish-pets.yml` 工作流自动运行生成器、将 ZIP 上传到 `pets-v1` Release、并部署 GitHub Pages 目录。该工作流不安装 Rust、不构建应用，在数十秒内完成。手动触发可在仓库的 **Actions → Publish pets → Run workflow** 进行。
+推送 `online-pets/`、`scripts/build-online-pets.mjs` 或 `catalog/` 的改动到 `main` 分支后，`publish-pets.yml` 工作流自动运行生成器、将 ZIP 和 `catalog.json` 上传到 `pets-v1` Release、并部署 GitHub Pages 目录。该工作流不安装 Rust、不构建应用，在数十秒内完成。手动触发可在仓库的 **Actions → Publish pets → Run workflow** 进行。
 
-新增或更新在线宠物不需要重新发布 DeskMate 应用本身。应用通过 `catalog.json` 发现宠物，通过 `pets-v1` Release 下载不可变 ZIP。
+新增或更新在线宠物不需要重新发布 DeskMate 应用本身。应用通过 `catalog.json` 发现宠物，通过 `pets-v1` Release 下载不可变 ZIP。当 GitHub Pages / github.com 不可达时（例如中国大陆网络），应用自动改经 `api.github.com` 获取目录与宠物包，SHA-256 校验保持不变。
 
 ## 🛠️ 本地开发
 

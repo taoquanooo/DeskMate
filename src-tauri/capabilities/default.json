@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions needed by the three DeskMate windows.",
-  "windows": ["settings", "pet", "bubble"],
+  "description": "Permissions needed by the DeskMate windows (extra pet windows are created at runtime as pet-N).",
+  "windows": ["settings", "pet", "pet-*", "bubble"],
   "permissions": ["core:default", "core:window:allow-hide", "core:window:allow-start-dragging"]
 }

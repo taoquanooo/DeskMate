@@ -24,4 +24,14 @@ describe("PetSprite", () => {
     expect(sprite).toHaveAttribute("data-column", "2");
     expect(sprite).toHaveStyle({ backgroundSize: "1536px 1872px" });
   });
+
+  it("sizes the layout box by the requested scale so the window never clips the sprite", () => {
+    render(<PetSprite state="idle" elapsedMs={0} scale={2.5} />);
+    const sprite = screen.getByRole("img");
+    expect(sprite).toHaveStyle({
+      width: "480px",
+      height: "520px",
+      backgroundSize: "3840px 5720px",
+    });
+  });
 });

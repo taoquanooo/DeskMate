@@ -37,7 +37,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: pets-v1
-          files: output/packages/*.zip
+          # catalog.json is published as a release asset too so the app can
+          # fetch the catalog through api.github.com when GitHub Pages is
+          # unreachable (e.g. mainland China networks).
+          files: |
+            output/packages/*.zip
+            output/pages/catalog/v1/catalog.json
           fail_on_unmatched_files: true
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

@@ -16,11 +16,12 @@ import {
   petCatalogRefresh,
   petCurrent,
   petInstall,
+  petUninstall,
   openPetGalleryUrl,
   openPetDexUrl,
   petLocalFolderOpen,
   petLocalRefresh,
-  petSelect,
+  petSelectionSet,
   openProjectUrl,
   shareProject,
   settingsGet,
@@ -137,6 +138,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
     let active = true;
     let disposedInstalled: (() => void) | undefined;
     let disposedProgress: (() => void) | undefined;
+    let disposedUninstalled: (() => void) | undefined;
     const refreshInstalled = async () => {
       try {
         const list = await installedPets();
@@ -158,6 +160,14 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
       if (active) disposedInstalled = dispose;
       else dispose();
     });
+    void listenEvent<{ id: string; version: string }>("pet://uninstalled", () => {
+      if (!active) return;
+      void refreshInstalled();
+      void refreshLocalPets();
+    }).then((dispose) => {
+      if (active) disposedUninstalled = dispose;
+      else dispose();
+    });
     void listenEvent<InstallProgress>("pet://install-progress", (progress) => {
       if (!active) return;
       setInstallProgress((current) => ({
@@ -172,6 +182,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
       active = false;
       disposedInstalled?.();
       disposedProgress?.();
+      disposedUninstalled?.();
     };
   }, [settings?.onboardingComplete]);
 
@@ -283,11 +294,23 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
           },
         );
       }}
-      onPetSelect={(id, version) =>
-        void petSelect(id, version).then(
-          () => setSettings((current) => (current ? { ...current, selectedPet: { id, version } } : current)),
+      onPetToggle={(id, version, add) => {
+        const current = settings.selectedPets;
+        const next = add
+          ? [...current, { id, version }]
+          : current.filter((pet) => !(pet.id === id && pet.version === version));
+        void petSelectionSet(next).then(
+          (pets) =>
+            setSettings((current) =>
+              current
+                ? { ...current, selectedPets: pets, selectedPet: pets[0] ?? current.selectedPet }
+                : current,
+            ),
           (error) => setCatalogError(`切换宠物失败：${String(error)}`),
-        )
+        );
+      }}
+      onPetUninstall={(id, version) =>
+        void petUninstall(id, version).catch((error) => setCatalogError(`删除失败：${String(error)}`))
       }
       onAutostartChange={(enabled) => void autostartSet(enabled)}
       localPets={localPetScan.pets}

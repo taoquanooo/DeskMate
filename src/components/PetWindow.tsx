@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { gazeAngleFromVector, type AnimationState } from "../domain/animation";
 import {
-  emitEvent,
+  emitWindowFlag,
   listenEvent,
   petAssetUrl,
   petCurrent,
@@ -51,6 +51,7 @@ export function PetWindow() {
   const activeInteraction = useRef<{ state: InteractionState; startedAt: number } | undefined>(undefined);
   const dragActive = useRef(false);
   const dragMoved = useRef(false);
+  const pointerStart = useRef<{ x: number; y: number } | undefined>(undefined);
   const resumeAnimation = useRef<{
     state: AnimationState;
     directionDegrees?: number;
@@ -151,7 +152,7 @@ export function PetWindow() {
         interactionActive.current = false;
         activeInteraction.current = undefined;
         dragActive.current = false;
-        void emitEvent("runtime://interaction", false);
+        void emitWindowFlag("runtime://interaction", false);
       }
     };
   }, []);
@@ -159,7 +160,7 @@ export function PetWindow() {
   const playInteraction = (state: InteractionState, duration: number) => {
     window.clearTimeout(interactionTimer.current);
     interactionActive.current = true;
-    void emitEvent("runtime://interaction", true);
+    void emitWindowFlag("runtime://interaction", true);
     const interaction = { state, startedAt: performance.now() };
     activeInteraction.current = interaction;
     setAnimation(interaction);
@@ -169,7 +170,7 @@ export function PetWindow() {
       if (!dragActive.current) {
         setAnimation({ ...resumeAnimation.current, startedAt: performance.now() });
       }
-      void emitEvent("runtime://interaction", false);
+      void emitWindowFlag("runtime://interaction", false);
     }, duration);
   };
 
@@ -195,7 +196,7 @@ export function PetWindow() {
   };
 
   const handleWindowDrag = async () => {
-    await emitEvent("runtime://dragging", true);
+    await emitWindowFlag("runtime://dragging", true);
     await startWindowDrag();
     // The OS drag continues after startWindowDrag resolves (notably on Windows).
     // The backend clears the dragging flag once the left mouse button is released,
@@ -204,6 +205,18 @@ export function PetWindow() {
   };
 
   const handlePointerMove = (event: React.PointerEvent) => {
+    // Start a native window drag only after the pointer moves beyond a small
+    // threshold so that simple clicks (jump/wave) are not swallowed by the
+    // OS drag loop.
+    if (pointerStart.current) {
+      const dx = event.clientX - pointerStart.current.x;
+      const dy = event.clientY - pointerStart.current.y;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+        pointerStart.current = undefined;
+        void handleWindowDrag();
+        return;
+      }
+    }
     if (petAppearance.spriteVersionNumber === 1) return;
     if (animation.state !== "idle" && animation.state !== "look") return;
     const rect = event.currentTarget.getBoundingClientRect();
@@ -226,16 +239,20 @@ export function PetWindow() {
       onPointerDown={(event) => {
         if (event.button === 0) {
           dragMoved.current = false;
-          void handleWindowDrag();
+          pointerStart.current = { x: event.clientX, y: event.clientY };
         }
+      }}
+      onPointerUp={() => {
+        pointerStart.current = undefined;
       }}
       onContextMenu={handleContextMenu}
       onPointerMove={handlePointerMove}
-      onPointerLeave={() =>
+      onPointerLeave={() => {
+        pointerStart.current = undefined;
         setAnimation((current) =>
           current.state === "look" ? { ...resumeAnimation.current, startedAt: performance.now() } : current,
-        )
-      }
+        );
+      }}
       aria-label="DeskMate 桌宠窗口"
     >
       <PetSprite

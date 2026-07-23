@@ -40,6 +40,10 @@ export function PetSprite({
   const direction = normalizeGazeAngle(directionDegrees);
   const label = effectiveState === "look" ? `桌宠正在看向 ${direction}°` : LABELS[effectiveState];
 
+  // Size the sprite through layout (not CSS transform) so the rendered box
+  // always matches the native window exactly — transform scaling leaves the
+  // layout box at 192x208 and lets rounding/origin drift clip the sprite at
+  // extreme scales.
   return (
     <div
       aria-label={ariaLabel ?? label}
@@ -48,10 +52,11 @@ export function PetSprite({
       data-column={cell.column}
       role="img"
       style={{
+        width: `${192 * scale}px`,
+        height: `${208 * scale}px`,
         backgroundImage: `url(${spritesheetUrl})`,
-        backgroundPosition: `${-cell.column * 192}px ${-cell.row * 208}px`,
-        backgroundSize: `1536px ${spriteVersionNumber === 1 ? 1872 : 2288}px`,
-        transform: `scale(${scale})`,
+        backgroundPosition: `${-cell.column * 192 * scale}px ${-cell.row * 208 * scale}px`,
+        backgroundSize: `${1536 * scale}px ${(spriteVersionNumber === 1 ? 1872 : 2288) * scale}px`,
       }}
     />
   );

@@ -2,7 +2,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { LocalPetScanV1, PetCatalogV1 } from "../domain/pets";
-import { DEFAULT_SETTINGS, mergeSettings, type SettingsV1 } from "../domain/settings";
+import { DEFAULT_SETTINGS, mergeSettings, type PetSelection, type SettingsV1 } from "../domain/settings";
 
 export interface RuntimeAnimationPayload {
   state: string;
@@ -96,13 +96,25 @@ export async function petInstall(id: string, version: string) {
   return invoke("pet_install", { id, version });
 }
 
+export async function petUninstall(id: string, version: string) {
+  return invoke("pet_uninstall", { id, version });
+}
+
 export async function installedPets(): Promise<InstalledPet[]> {
   if (!isTauri()) return [];
   return invoke<InstalledPet[]>("installed_pets");
 }
 
-export async function petSelect(id: string, version: string) {
-  return invoke("pet_select", { id, version });
+export async function petSelectionSet(pets: PetSelection[]): Promise<PetSelection[]> {
+  return invoke<PetSelection[]>("pet_selection_set", { pets });
+}
+
+export function currentWindowLabel(): string {
+  return isTauri() ? getCurrentWindow().label : "pet";
+}
+
+export async function emitWindowFlag(event: "runtime://dragging" | "runtime://interaction", value: boolean) {
+  await emitEvent(event, { label: currentWindowLabel(), value });
 }
 
 export async function petLocalRefresh(): Promise<LocalPetScanV1> {

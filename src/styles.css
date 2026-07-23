@@ -31,12 +31,11 @@ button {
 }
 
 .pet-sprite {
-  width: 192px;
-  height: 208px;
+  /* width/height are set inline from the pet scale so the layout box always
+     matches the native window size (no CSS transform scaling). */
   flex: 0 0 auto;
   background-repeat: no-repeat;
   image-rendering: auto;
-  transform-origin: center bottom;
 }
 
 .pet-thumbnail {
@@ -418,6 +417,16 @@ input[type="range"]::-webkit-slider-thumb {
 .button-secondary:hover {
   border-color: #c9c4bf;
   background: #fdfcfc;
+}
+.button-danger {
+  color: #b94a48;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 8px 10px;
+}
+.button-danger:hover {
+  background: #fff1ee;
+  border-color: #f0d6d0;
 }
 .icon-button {
   display: grid;

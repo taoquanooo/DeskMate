@@ -28,6 +28,11 @@ test("the cloud preview workflow verifies and uploads an unsigned NSIS installer
   assert.match(workflow, /src-tauri\/target\/x86_64-pc-windows-msvc\/release\/bundle\/nsis\/\*\.exe/);
   assert.match(workflow, /if-no-files-found: error/);
   assert.match(workflow, /retention-days: 14/);
+  assert.match(
+    workflow,
+    /DESKMATE_CATALOG_URL: https:\/\/\$\{\{ github\.repository_owner \}\}\.github\.io/,
+    "the preview build must compile the catalog URL so the online pet library works",
+  );
 });
 
 test("the cloud preview flavor does not require updater signing secrets", async () => {
@@ -115,6 +120,11 @@ test("the pet publishing workflow publishes without building the app", async () 
   assert.match(workflow, /node scripts\/build-online-pets\.mjs/);
   assert.match(workflow, /tag_name: pets-v1/);
   assert.match(workflow, /output\/packages\/\*\.zip/);
+  assert.match(
+    workflow,
+    /output\/pages\/catalog\/v1\/catalog\.json/,
+    "the catalog must also ship as a pets-v1 release asset for the api.github.com fallback",
+  );
   assert.match(workflow, /actions\/upload-pages-artifact/);
   assert.match(workflow, /actions\/deploy-pages/);
   assert.doesNotMatch(workflow, /dtolnay\/rust-toolchain/);

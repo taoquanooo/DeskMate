@@ -12,13 +12,15 @@ pub struct SettingsV1 {
     pub onboarding_complete: bool,
     pub autostart_enabled: bool,
     pub selected_pet: SelectedPet,
+    #[serde(default)]
+    pub selected_pets: Vec<SelectedPet>,
     pub pet: PetSettings,
     pub reminders: Vec<Reminder>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_pets_dir: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectedPet {
     pub id: String,
     pub version: String,
@@ -59,6 +61,9 @@ impl Default for SettingsV1 {
     }
 }
 
+/// Maximum number of pets shown on the desktop at the same time.
+pub const MAX_ACTIVE_PETS: usize = 4;
+
 impl SettingsV1 {
     pub fn sanitize(mut self) -> Self {
         if self.schema_version != 1 {
@@ -66,6 +71,24 @@ impl SettingsV1 {
         }
         self.pet.scale = self.pet.scale.clamp(0.25, 3.0);
         self.pet.speed = self.pet.speed.clamp(40.0, 140.0);
+        // Migrate the legacy single selection into the multi-pet list, drop
+        // duplicates and blank ids, and cap the number of simultaneous pets.
+        if self.selected_pets.is_empty() {
+            self.selected_pets = vec![self.selected_pet.clone()];
+        }
+        self.selected_pets
+            .retain(|pet| !pet.id.trim().is_empty() && !pet.version.trim().is_empty());
+        let mut seen = std::collections::HashSet::new();
+        self.selected_pets
+            .retain(|pet| seen.insert((pet.id.clone(), pet.version.clone())));
+        self.selected_pets.truncate(MAX_ACTIVE_PETS);
+        if self.selected_pets.is_empty() {
+            self.selected_pets = vec![SelectedPet {
+                id: "yanghao".into(),
+                version: "1.0.0".into(),
+            }];
+        }
+        self.selected_pet = self.selected_pets[0].clone();
         self.reminders.retain(|item| {
             !item.id.trim().is_empty()
                 && !item.title.trim().is_empty()
@@ -164,6 +187,10 @@ fn default_value() -> Value {
         "schemaVersion": 1,
         "onboardingComplete": false,
         "autostartEnabled": true,
+        // NOTE: `selectedPets` is intentionally absent here. Legacy settings
+        // files only carry `selectedPet`; if the defaults injected a
+        // `selectedPets` list, merge_json would keep it and sanitize() would
+        // never migrate the user's legacy single selection.
         "selectedPet": { "id": "yanghao", "version": "1.0.0" },
         "pet": {
             "scale": 1.0,
@@ -289,5 +316,46 @@ mod tests {
         store.save_value(&value).unwrap();
         let loaded = store.load();
         assert_eq!(loaded.pet.scale, 3.0);
+    }
+
+    #[test]
+    fn migrates_legacy_single_selection_into_selected_pets() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = SettingsStore::new(directory.path().join("settings.json"));
+        let mut value = store.load_value();
+        value["selectedPet"] = json!({ "id": "lev-neon", "version": "1.0.0" });
+        value.as_object_mut().unwrap().remove("selectedPets");
+        store.save_value(&value).unwrap();
+        let loaded = store.load();
+        assert_eq!(loaded.selected_pets.len(), 1);
+        assert_eq!(loaded.selected_pets[0].id, "lev-neon");
+        assert_eq!(loaded.selected_pet.id, "lev-neon");
+    }
+
+    #[test]
+    fn dedupes_and_caps_selected_pets() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = SettingsStore::new(directory.path().join("settings.json"));
+        let mut value = store.load_value();
+        value["selectedPets"] = json!([
+            { "id": "yanghao", "version": "1.0.0" },
+            { "id": "lev-neon", "version": "1.0.0" },
+            { "id": "yanghao", "version": "1.0.0" },
+            { "id": "", "version": "1.0.0" },
+            { "id": "a", "version": "1.0.0" },
+            { "id": "b", "version": "1.0.0" },
+            { "id": "c", "version": "1.0.0" }
+        ]);
+        store.save_value(&value).unwrap();
+        let loaded = store.load();
+        assert_eq!(
+            loaded
+                .selected_pets
+                .iter()
+                .map(|pet| pet.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["yanghao", "lev-neon", "a", "b"]
+        );
+        assert_eq!(loaded.selected_pet.id, "yanghao");
     }
 }

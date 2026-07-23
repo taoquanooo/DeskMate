@@ -13,10 +13,11 @@ import {
   RefreshCw,
   RotateCcw,
   Share2,
+  Trash2,
 } from "lucide-react";
 import type { Reminder, ReminderSchedule } from "../domain/reminders";
 import type { LocalPetV1, PetCatalogV1 } from "../domain/pets";
-import type { SettingsV1 } from "../domain/settings";
+import { MAX_ACTIVE_PETS, type PetSelection, type SettingsV1 } from "../domain/settings";
 import {
   BUILT_IN_PETS,
   PETDEX_URL,
@@ -52,7 +53,8 @@ export interface SettingsAppProps {
   installProgress?: Record<string, InstallProgress>;
   onCatalogRefresh?: () => void;
   onPetInstall?: (id: string, version: string) => void;
-  onPetSelect?: (id: string, version: string) => void;
+  onPetToggle?: (id: string, version: string, add: boolean) => void;
+  onPetUninstall?: (id: string, version: string) => void;
   onAutostartChange?: (enabled: boolean) => void;
   localPets?: LocalPetV1[];
   localPetFolder?: string;
@@ -87,7 +89,8 @@ export function SettingsApp({
   installProgress = {},
   onCatalogRefresh,
   onPetInstall,
-  onPetSelect,
+  onPetToggle,
+  onPetUninstall,
   onAutostartChange,
   localPets = [],
   localPetFolder,
@@ -149,7 +152,7 @@ export function SettingsApp({
           <span className="status-dot" />
           <span className="sidebar-footer-info">
             运行中
-            <small>DeskMate v0.1.3</small>
+            <small>DeskMate v0.1.4</small>
           </span>
           <button
             type="button"
@@ -183,10 +186,11 @@ export function SettingsApp({
           <PetLibrary
             catalog={catalog}
             error={catalogError}
-            selected={settings.selectedPet}
+            selectedPets={settings.selectedPets}
             onRefresh={onCatalogRefresh}
             onInstall={onPetInstall}
-            onSelect={onPetSelect}
+            onToggle={onPetToggle}
+            onUninstall={onPetUninstall}
             installedPets={installedPets}
             installProgress={installProgress}
             localPets={localPets}
@@ -262,7 +266,11 @@ function PetSettings({
         <section className="pet-preview" aria-label="桌宠预览">
           <div className="preview-bubble">
             <strong>今天也一起加油吧！</strong>
-            <span>正在展示当前桌宠的动画</span>
+            <span>
+              {settings.selectedPets.length > 1
+                ? `桌面上同时显示 ${settings.selectedPets.length} 只桌宠，这里预览第一只`
+                : "正在展示当前桌宠的动画"}
+            </span>
           </div>
           <PetPreview pet={previewPet} displayName={previewName} />
           <button className="button button-secondary" onClick={onRecall}>
@@ -406,10 +414,11 @@ function ReminderSettings({
 function PetLibrary({
   catalog,
   error,
-  selected,
+  selectedPets,
   onRefresh,
   onInstall,
-  onSelect,
+  onToggle,
+  onUninstall,
   installedPets = [],
   installProgress = {},
   localPets,
@@ -423,10 +432,11 @@ function PetLibrary({
 }: {
   catalog?: PetCatalogV1 | null;
   error?: string | null;
-  selected: SettingsV1["selectedPet"];
+  selectedPets: PetSelection[];
   onRefresh?: () => void;
   onInstall?: (id: string, version: string) => void;
-  onSelect?: (id: string, version: string) => void;
+  onToggle?: (id: string, version: string, add: boolean) => void;
+  onUninstall?: (id: string, version: string) => void;
   installedPets?: InstalledPet[];
   installProgress?: Record<string, InstallProgress>;
   localPets: LocalPetV1[];
@@ -439,9 +449,40 @@ function PetLibrary({
   onOpenPetDex?: () => void;
 }) {
   const pets = catalog?.pets ?? [];
+  const isSelected = (id: string, version: string) =>
+    selectedPets.some((pet) => pet.id === id && pet.version === version);
+  const selectionFull = selectedPets.length >= MAX_ACTIVE_PETS;
+  const toggleButton = (id: string, version: string) => {
+    if (isSelected(id, version)) {
+      const onlyOne = selectedPets.length <= 1;
+      return (
+        <button
+          className="button button-secondary pet-toggle active"
+          title={onlyOne ? "桌面至少保留一只桌宠" : "从桌面移除"}
+          disabled={onlyOne}
+          onClick={() => onToggle?.(id, version, false)}
+        >
+          使用中 · 移除
+        </button>
+      );
+    }
+    return (
+      <button
+        className="button button-primary"
+        title={selectionFull ? `最多同时显示 ${MAX_ACTIVE_PETS} 只桌宠` : "添加到桌面"}
+        disabled={selectionFull}
+        onClick={() => onToggle?.(id, version, true)}
+      >
+        添加到桌面
+      </button>
+    );
+  };
   return (
     <>
-      <PageHeader title="宠物库" subtitle="选择官方宠物，或从本机文件夹导入自己的伙伴。" />
+      <PageHeader
+        title="宠物库"
+        subtitle={`选择官方宠物，或从本机文件夹导入自己的伙伴。可同时显示最多 ${MAX_ACTIVE_PETS} 只桌宠（当前 ${selectedPets.length} 只）。`}
+      />
       <aside className="pet-gallery-recommendation" aria-label="推荐宠物库">
         <div>
           <strong>推荐：Codex Pet Gallery</strong>
@@ -516,13 +557,14 @@ function PetLibrary({
             </small>
           </div>
           <div className="pet-library-actions">
-            {selected.id === pet.id && selected.version === "local" ? (
-              <span className="installed-label">当前使用</span>
-            ) : (
-              <button className="button button-primary" onClick={() => onSelect?.(pet.id, "local")}>
-                使用
-              </button>
-            )}
+            {toggleButton(pet.id, "local")}
+            <button
+              className="button button-danger"
+              title="删除"
+              onClick={() => onUninstall?.(pet.id, "local")}
+            >
+              <Trash2 size={15} />
+            </button>
           </div>
         </article>
       ))}
@@ -548,16 +590,10 @@ function PetLibrary({
             <strong>{pet.displayName}</strong>
             <p>{pet.description}</p>
             <span className="installed-label">
-              已安装 · {selected.id === pet.id && selected.version === pet.version ? "当前使用" : "可使用"}
+              已安装 · {isSelected(pet.id, pet.version) ? "当前使用" : "可使用"}
             </span>
           </div>
-          <div className="pet-library-actions">
-            {(selected.id !== pet.id || selected.version !== pet.version) && (
-              <button className="button button-primary" onClick={() => onSelect?.(pet.id, pet.version)}>
-                使用
-              </button>
-            )}
-          </div>
+          <div className="pet-library-actions">{toggleButton(pet.id, pet.version)}</div>
         </article>
       ))}
       {pets
@@ -593,8 +629,13 @@ function PetLibrary({
                 {installed ? (
                   <>
                     <span className="installed-label">已下载</span>
-                    <button className="button button-primary" onClick={() => onSelect?.(pet.id, pet.version)}>
-                      使用
+                    {toggleButton(pet.id, pet.version)}
+                    <button
+                      className="button button-danger"
+                      title="删除"
+                      onClick={() => onUninstall?.(pet.id, pet.version)}
+                    >
+                      <Trash2 size={15} />
                     </button>
                   </>
                 ) : progress ? (
@@ -645,7 +686,7 @@ function About({
       <div className="about-mark">
         <Heart size={32} fill="currentColor" />
       </div>
-      <h2 className="about-title">DeskMate v0.1.3</h2>
+      <h2 className="about-title">DeskMate v0.1.4</h2>
       <p className="about-intro">陪伴、提醒和可更换宠物都在本机完成</p>
       <p className="about-copy">程序代码采用 MIT 许可证。</p>
       <div className="about-actions">

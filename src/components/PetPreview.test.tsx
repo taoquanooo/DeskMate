@@ -34,7 +34,7 @@ describe("PetPreview", () => {
       />,
     );
 
-    expect(screen.getByRole("img")).toHaveStyle({ transform: "scale(1)" });
+    expect(screen.getByRole("img")).toHaveStyle({ width: "192px", height: "208px" });
     expect(screen.getByText("默认伙伴 · v1.0.0")).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(3_200));
     expect(screen.getByLabelText("桌宠正在挥手")).toBeInTheDocument();

@@ -24,10 +24,23 @@ describe("SettingsApp", () => {
   it("keeps the preview at 100% while changing the desktop pet size", () => {
     render(<SettingsApp initialSettings={DEFAULT_SETTINGS} />);
     const preview = screen.getByRole("img");
-    expect(preview).toHaveStyle({ transform: "scale(1)" });
+    expect(preview).toHaveStyle({ width: "192px", height: "208px" });
 
     fireEvent.change(screen.getByRole("slider", { name: "大小" }), { target: { value: "300" } });
-    expect(preview).toHaveStyle({ transform: "scale(1)" });
+    expect(preview).toHaveStyle({ width: "192px", height: "208px" });
+  });
+
+  it("toggles pets onto and off the desktop from the library", () => {
+    const onPetToggle = vi.fn();
+    render(<SettingsApp initialSettings={DEFAULT_SETTINGS} onPetToggle={onPetToggle} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "宠物库" }));
+    // 默认伙伴已在桌面上：只能移除，且只剩一只时不可移除
+    const selectedToggle = screen.getAllByRole("button", { name: "使用中 · 移除" })[0]!;
+    expect(selectedToggle).toBeDisabled();
+    // Lev-neon 不在桌面上：可以添加
+    fireEvent.click(screen.getAllByRole("button", { name: "添加到桌面" })[0]!);
+    expect(onPetToggle).toHaveBeenCalledWith("lev-neon", "1.0.0", true);
   });
 
   it("opens the reminder editor from the navigation", () => {

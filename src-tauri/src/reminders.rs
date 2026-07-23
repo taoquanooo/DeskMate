@@ -141,8 +141,8 @@ pub fn start(app: tauri::AppHandle, runtime: std::sync::Arc<ReminderRuntime>) {
             }
             if state.paused.load(std::sync::atomic::Ordering::Relaxed)
                 || state.fullscreen.load(std::sync::atomic::Ordering::Relaxed)
-                || state.dragging.load(std::sync::atomic::Ordering::Relaxed)
-                || state.interacting.load(std::sync::atomic::Ordering::Relaxed)
+                || crate::any_window_flag(&state.dragging)
+                || crate::any_window_flag(&state.interacting)
             {
                 continue;
             }
