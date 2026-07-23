@@ -1,5 +1,5 @@
 use image::GenericImageView;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
@@ -43,9 +43,16 @@ pub struct PetManifestV2 {
     pub id: String,
     pub display_name: String,
     pub description: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_declared_sprite_version")]
     pub sprite_version_number: Option<u8>,
     pub spritesheet_path: String,
+}
+
+fn deserialize_declared_sprite_version<'de, D>(deserializer: D) -> Result<Option<u8>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    u8::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -609,6 +616,29 @@ mod tests {
         write_pet_package(&path, Some(2), 2, true);
 
         assert_eq!(validate_package(&path, 25 * 1024 * 1024), Ok(()));
+    }
+
+    #[test]
+    fn rejects_null_sprite_version_number_in_downloaded_manifest() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("pet.zip");
+        let file = std::fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("pet.json", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(
+            br#"{"id":"online-pet","displayName":"Online Pet","description":"Downloaded test pet","spriteVersionNumber":null,"spritesheetPath":"spritesheet.webp"}"#,
+        )
+        .unwrap();
+        zip.start_file("spritesheet.webp", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(&spritesheet_bytes(1)).unwrap();
+        zip.finish().unwrap();
+
+        assert_eq!(
+            validate_package(&path, 25 * 1024 * 1024),
+            Err(PackageError::InvalidManifest)
+        );
     }
 
     #[test]
