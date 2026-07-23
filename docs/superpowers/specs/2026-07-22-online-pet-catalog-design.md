@@ -63,6 +63,7 @@ catalog/
 ## 兼容与预览
 
 - 杨皓和 Lev-neon 是安装包内置宠物，断网时也能在宠物库中切换；Lev-neon 不进入 `pets-v1` 在线 ZIP。
+- 宠物库推荐区并列提供 Codex Pet Gallery 与 [PetDex](https://petdex.dev/)；两者只作为浏览/下载入口，不接入官方自动更新源。
 - 在线官方包支持 `1536x1872` 的 v1 和 `1536x2288` 的 v2；声明版本时必须与实际尺寸一致，省略时由程序自动识别。
 - ZIP 根目录必须有 `pet.json` 和 `spritesheet.webp`，可选有 `ASSET_LICENSE.txt`，禁止其他文件和路径。
 - 首版在线目录使用统一的轻量占位预览图，避免要求用户额外制作预览文件；宠物安装和运行不受影响。

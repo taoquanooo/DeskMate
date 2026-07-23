@@ -133,6 +133,7 @@ git commit -m "Support v1 pets in the online catalog"
 - Add: `public/pets/lev-neon/pet.json`
 - Add: `public/pets/lev-neon/spritesheet.webp`
 - Modify: `src-tauri/src/lib.rs`
+- Modify: `src/App.tsx`
 - Modify: `src/lib/tauri.ts`
 - Modify: `src/components/SettingsApp.tsx`
 - Modify: focused tests for the files above
@@ -149,6 +150,7 @@ Add focused tests proving that:
 - selecting `lev-neon@1.0.0` resolves to sprite version 2 and its bundled `/pets/lev-neon/spritesheet.webp` URL without requiring a downloaded data-directory package;
 - `petAssetUrl` passes a `/pets/...` bundled URL through unchanged while continuing to convert installed filesystem paths;
 - the pet library renders both Yanghao and Lev-neon, marks the selected one, and calls `onSelect("lev-neon", "1.0.0")` from its Use button.
+- the pet library renders a PetDex recommendation linking to `https://petdex.dev/` and invokes the system-browser bridge instead of navigating the Tauri webview.
 
 - [ ] **Step 2: Run focused tests and verify RED**
 
@@ -164,6 +166,7 @@ Expected: FAIL because only Yanghao is recognized and listed as built-in, and bu
 - Update `petAssetUrl` so trusted application-root `/pets/...` URLs pass through unchanged; installed/custom filesystem paths must still use Tauri's converted asset protocol.
 - Render a second built-in row in the pet library with its actual atlas thumbnail, name `Lev-neon`, description from its manifest, installed/current state, and Use action.
 - Ensure online catalog rows filter any catalog entry that duplicates either built-in id/version.
+- Add PetDex beside Codex Pet Gallery as a second recommended website; introduce a narrowly scoped Tauri command/TypeScript bridge that opens the fixed `https://petdex.dev/` URL in the system browser.
 - Preserve the default selected pet as Yanghao; this task adds a choice but does not migrate existing settings.
 
 - [ ] **Step 4: Verify GREEN and assets**
@@ -175,7 +178,7 @@ Expected: all focused tests pass; Lev-neon validates as a Codex v2 atlas.
 - [ ] **Step 5: Commit the built-in pet**
 
 ```powershell
-git add -- public/pets/lev-neon src-tauri/src/lib.rs src/lib/tauri.ts src/components/SettingsApp.tsx
+git add -- public/pets/lev-neon src-tauri/src/lib.rs src/App.tsx src/lib/tauri.ts src/components/SettingsApp.tsx
 git add -- src-tauri/src/*test* src/**/*.test.ts src/**/*.test.tsx
 git commit -m "Bundle Lev-neon as a built-in pet"
 ```
