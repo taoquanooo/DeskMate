@@ -143,6 +143,7 @@ async fn run_pet_engine(app: &tauri::AppHandle, label: &str) {
             drag_animation = None;
             drag_moved = false;
             let _ = app.emit_to(label, "runtime://drag-ended", ());
+            persist_pet_positions(&app);
         }
         if window_flag(&state.interacting, label) {
             set_window_flag(&state.moving, label, false);
@@ -290,9 +291,23 @@ pub fn recall_to_cursor_monitor(app: &tauri::AppHandle) -> Result<(), String> {
 
 #[cfg(windows)]
 pub(crate) fn cursor_work_area() -> Option<WorkArea> {
+    cursor_monitor_info().map(|(area, _)| area)
+}
+
+#[cfg(not(windows))]
+pub(crate) fn cursor_work_area() -> Option<WorkArea> {
+    None
+}
+
+/// Work area of the monitor under the cursor, plus that monitor's effective
+/// DPI scale. Position math mixing logical sizes with the physical work-area
+/// rect drifts on scaled displays, so callers need both.
+#[cfg(windows)]
+pub(crate) fn cursor_monitor_info() -> Option<(WorkArea, f64)> {
     use windows::Win32::{
         Foundation::POINT,
         Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST},
+        UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
         UI::WindowsAndMessaging::GetCursorPos,
     };
     unsafe {
@@ -303,24 +318,37 @@ pub(crate) fn cursor_work_area() -> Option<WorkArea> {
             cbSize: std::mem::size_of::<MONITORINFO>() as u32,
             ..Default::default()
         };
-        GetMonitorInfoW(monitor, &mut info)
-            .as_bool()
-            .then_some(WorkArea {
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+            return None;
+        }
+        let mut dpi_x = 0_u32;
+        let mut dpi_y = 0_u32;
+        let scale = if GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y).is_ok()
+            && dpi_x > 0
+        {
+            dpi_x as f64 / 96.0
+        } else {
+            1.0
+        };
+        Some((
+            WorkArea {
                 left: info.rcWork.left,
                 top: info.rcWork.top,
                 right: info.rcWork.right,
                 bottom: info.rcWork.bottom,
-            })
+            },
+            scale,
+        ))
     }
 }
 
 #[cfg(not(windows))]
-pub(crate) fn cursor_work_area() -> Option<WorkArea> {
+pub(crate) fn cursor_monitor_info() -> Option<(WorkArea, f64)> {
     None
 }
 
 #[cfg(windows)]
-fn work_areas() -> Vec<WorkArea> {
+pub(crate) fn work_areas() -> Vec<WorkArea> {
     use windows::{
         core::BOOL,
         Win32::{
@@ -400,6 +428,71 @@ fn is_left_button_pressed() -> bool {
 
 #[cfg(not(windows))]
 fn is_left_button_pressed() -> bool {
+    false
+}
+
+fn pet_positions_path(app: &tauri::AppHandle) -> std::path::PathBuf {
+    app.state::<AppState>()
+        .data_dir
+        .join("window-positions.json")
+}
+
+/// Snapshot every live pet window's physical position so a restart can put
+/// each pet back where the user dragged it.
+pub(crate) fn persist_pet_positions(app: &tauri::AppHandle) {
+    let positions: std::collections::BTreeMap<String, [i32; 2]> = app
+        .webview_windows()
+        .into_iter()
+        .filter(|(label, _)| crate::pet_window_index(label).is_some())
+        .filter_map(|(label, window)| {
+            let position = window.outer_position().ok()?;
+            Some((label, [position.x, position.y]))
+        })
+        .collect();
+    let Ok(bytes) = serde_json::to_vec(&positions) else {
+        return;
+    };
+    let path = pet_positions_path(app);
+    let temp = path.with_extension("json.tmp");
+    // Best-effort: a failed write only means the position won't survive a restart.
+    let _ = std::fs::write(&temp, bytes).and_then(|_| std::fs::rename(&temp, &path));
+}
+
+/// Move `window` back to its saved position when that point still lies on a
+/// connected monitor. Returns whether a position was applied.
+pub(crate) fn restore_pet_position(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    label: &str,
+) -> bool {
+    let Ok(contents) = std::fs::read_to_string(pet_positions_path(app)) else {
+        return false;
+    };
+    let Ok(positions) =
+        serde_json::from_str::<std::collections::BTreeMap<String, [i32; 2]>>(&contents)
+    else {
+        return false;
+    };
+    let Some([x, y]) = positions.get(label).copied() else {
+        return false;
+    };
+    let Ok(size) = window.outer_size() else {
+        return false;
+    };
+    let saved = Point {
+        x: x as f64,
+        y: y as f64,
+    };
+    for area in work_areas() {
+        if x >= area.left && x < area.right && y >= area.top && y < area.bottom {
+            let clamped = clamp_to_work_area(saved, area, size.width as i32, size.height as i32);
+            let _ = window.set_position(tauri::PhysicalPosition::new(
+                clamped.x.round() as i32,
+                clamped.y.round() as i32,
+            ));
+            return true;
+        }
+    }
     false
 }
 

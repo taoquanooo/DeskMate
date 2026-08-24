@@ -7,6 +7,7 @@ const tauriMocks = vi.hoisted(() => ({
   listenEvent: vi.fn(),
   petCurrent: vi.fn(),
   settingsGet: vi.fn(),
+  settingsPatch: vi.fn(),
 }));
 
 vi.mock("./lib/tauri", async (importOriginal) => ({
@@ -14,6 +15,7 @@ vi.mock("./lib/tauri", async (importOriginal) => ({
   listenEvent: tauriMocks.listenEvent,
   petCurrent: tauriMocks.petCurrent,
   settingsGet: tauriMocks.settingsGet,
+  settingsPatch: tauriMocks.settingsPatch,
 }));
 
 import { App, loadInitialSettings } from "./App";
@@ -23,6 +25,8 @@ describe("DeskMate settings startup", () => {
     tauriMocks.settingsGet.mockReset();
     tauriMocks.petCurrent.mockReset();
     tauriMocks.listenEvent.mockReset();
+    tauriMocks.settingsPatch.mockReset();
+    tauriMocks.settingsPatch.mockResolvedValue(structuredClone(DEFAULT_SETTINGS));
     tauriMocks.petCurrent.mockResolvedValue({
       id: "yanghao",
       version: "1.0.0",
@@ -94,6 +98,22 @@ describe("DeskMate settings startup", () => {
 
     expect(await screen.findByRole("button", { name: "链接已复制" })).toBeInTheDocument();
     expect(execCommand).toHaveBeenCalledWith("copy");
+  });
+
+  it("shows a visible error when saving settings fails", async () => {
+    tauriMocks.settingsGet.mockResolvedValue({
+      ...structuredClone(DEFAULT_SETTINGS),
+      onboardingComplete: true,
+    });
+    tauriMocks.settingsPatch.mockRejectedValue(new Error("disk full"));
+    window.history.replaceState({}, "", "/?view=settings");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "桌宠设置" });
+    fireEvent.click(screen.getByRole("switch", { name: "自动漫游" }));
+
+    expect(await screen.findByText(/保存设置失败/)).toBeInTheDocument();
+    expect(screen.getByText(/disk full/)).toBeInTheDocument();
   });
 
   it("updates the settings preview when the selected pet changes", async () => {

@@ -42,6 +42,7 @@ type Section = "pet" | "reminders" | "library" | "about";
 
 export interface SettingsAppProps {
   initialSettings: SettingsV1;
+  settingsSaveError?: string | null;
   onSettingsChange?: (settings: SettingsV1) => void;
   onRecall?: () => void;
   onCheckUpdates?: () => void;
@@ -78,6 +79,7 @@ const NAV: Array<{ id: Section; label: string; icon: typeof PawPrint }> = [
 
 export function SettingsApp({
   initialSettings,
+  settingsSaveError,
   onSettingsChange,
   onRecall,
   onCheckUpdates,
@@ -165,6 +167,12 @@ export function SettingsApp({
         </div>
       </aside>
       <section className="settings-main">
+        {settingsSaveError && (
+          <p className="settings-save-error" role="alert">
+            {settingsSaveError}
+            <small>当前显示的修改尚未写入磁盘，重启后会恢复为上次保存的设置。</small>
+          </p>
+        )}
         {section === "pet" && (
           <PetSettings
             settings={settings}
@@ -726,7 +734,7 @@ function About({
       )}
       {updateState === "error" && (
         <p className="about-update-status" role="alert">
-          检查更新失败：{updateUi?.error}
+          {updateUi?.error}
         </p>
       )}
       {updateState === "ready" && (

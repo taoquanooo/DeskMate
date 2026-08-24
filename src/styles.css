@@ -958,6 +958,22 @@ body.view-bubble {
 .about-update-status[role="alert"] {
   color: #9b4e42;
 }
+.settings-save-error {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #f9efec;
+  border: 1px solid #e6c9c0;
+  color: #9b4e42;
+  font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.settings-save-error small {
+  color: #a3857d;
+  font-size: 11px;
+}
 .about-update-ready {
   display: flex;
   align-items: center;

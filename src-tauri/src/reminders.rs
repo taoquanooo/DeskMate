@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     sync::Mutex,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{Emitter, Listener, Manager, PhysicalPosition};
 
@@ -15,7 +15,10 @@ use tauri::{Emitter, Listener, Manager, PhysicalPosition};
 pub struct ReminderRuntime {
     last_triggered: Mutex<HashMap<String, i64>>,
     snoozed_until: Mutex<HashMap<String, i64>>,
-    last_tick: Mutex<Option<Instant>>,
+    // Wall-clock (epoch millis) of the last tick. `Instant` cannot detect a
+    // system sleep on every Windows setup because QPC may pause while
+    // suspended, which would replay stale snoozes after wake.
+    last_tick: Mutex<Option<i64>>,
 }
 
 #[derive(Serialize, Clone)]
@@ -42,16 +45,16 @@ impl ReminderRuntime {
         }
         let mut tick = self.last_tick.lock().expect("reminder state poisoned");
         if tick.is_none() {
-            *tick = Some(Instant::now());
+            *tick = Some(now);
         }
     }
 
     fn reset_after_sleep(&self, reminders: &[Reminder]) -> bool {
+        let now = epoch_millis();
         let mut tick = self.last_tick.lock().expect("reminder state poisoned");
-        let resumed = tick.is_some_and(|previous| previous.elapsed() > Duration::from_secs(120));
-        *tick = Some(Instant::now());
+        let resumed = tick.is_some_and(|previous| now - previous > 120_000);
+        *tick = Some(now);
         if resumed {
-            let now = epoch_millis();
             let mut last = self.last_triggered.lock().expect("reminder state poisoned");
             for item in reminders {
                 last.insert(item.id.clone(), now);
@@ -199,9 +202,26 @@ fn show_bubble(app: &tauri::AppHandle, payload: BubblePayload) {
         return;
     };
     if let Some(pet) = app.get_webview_window("pet") {
-        if let (Ok(position), Ok(bubble_size)) = (pet.outer_position(), bubble.outer_size()) {
-            let x = position.x - 42;
-            let y = position.y - bubble_size.height as i32 + 18;
+        if let (Ok(pet_position), Ok(pet_size), Ok(bubble_size)) =
+            (pet.outer_position(), pet.outer_size(), bubble.outer_size())
+        {
+            // All values are physical pixels. Center the bubble over the pet
+            // with a small DPI-scaled overlap so it visually connects to it.
+            let scale = pet.scale_factor().unwrap_or(1.0);
+            let overlap = (scale * 12.0).round() as i32;
+            let mut x = pet_position.x + (pet_size.width as i32 - bubble_size.width as i32) / 2;
+            let mut y = pet_position.y - bubble_size.height as i32 + overlap;
+            // Keep the bubble fully inside the pet's monitor so it is never
+            // clipped at a screen edge.
+            if let Some(monitor) = pet.current_monitor().ok().flatten() {
+                let bounds = monitor.work_area();
+                x = x.clamp(
+                    bounds.position.x,
+                    (bounds.position.x + bounds.size.width as i32 - bubble_size.width as i32)
+                        .max(bounds.position.x),
+                );
+                y = y.max(bounds.position.y);
+            }
             let _ = bubble.set_position(PhysicalPosition::new(x, y));
         }
     }

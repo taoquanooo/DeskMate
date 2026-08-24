@@ -204,6 +204,19 @@ async fn pet_install(app: tauri::AppHandle, id: String, version: String) -> Resu
         .into_iter()
         .find(|entry| entry.id == id && entry.version == version)
         .ok_or_else(|| format!("{id}@{version} is not in the official catalog"))?;
+    // Manual installs must honour the same compatibility gate as automatic
+    // upgrades: a pet built for a newer app would install fine and then break
+    // at load time.
+    if let (Ok(minimum), Ok(app_version)) = (
+        semver::Version::parse(&entry.min_app_version),
+        semver::Version::parse(APP_VERSION),
+    ) {
+        if minimum > app_version {
+            return Err(format!(
+                "{id} 需要 DeskMate v{minimum} 或更高版本，当前为 v{APP_VERSION}"
+            ));
+        }
+    }
     install_entry(&app, &entry).await
 }
 
@@ -696,6 +709,14 @@ pub fn run() {
             // petCurrent() calls raced ahead of app.manage(AppState).
             if let Err(error) = sync_pet_windows(app.handle()) {
                 eprintln!("failed to sync pet windows: {error}");
+            }
+            // The static "pet" window from tauri.conf.json bypasses
+            // create_pet_window, so restore its saved position here. Dynamic
+            // windows already restored themselves at creation.
+            for (label, window) in app.webview_windows() {
+                if label == "pet" {
+                    runtime::restore_pet_position(app.handle(), &window, &label);
+                }
             }
             if let Some(settings_window) = app.get_webview_window("settings") {
                 let window = settings_window.clone();
@@ -1374,16 +1395,30 @@ fn create_pet_window(
     .inner_size(width, height)
     .build()
     .map_err(|error| format!("创建桌宠窗口失败：{error}"))?;
+    // Put the pet back where the user last dragged it; the saved point is
+    // validated against the currently connected monitors first.
+    if runtime::restore_pet_position(app, &window, label) {
+        let _ = window.show();
+        return Ok(window);
+    }
     // Stagger new pets along the bottom of the cursor monitor so they don't
-    // stack on top of each other.
-    if let Some(area) = runtime::cursor_work_area() {
-        let offset = index as f64 * (width + 48.0);
-        let center = area.left as f64 + (area.right - area.left) as f64 / 2.0;
-        let x = center + offset - width / 2.0;
-        let y = area.bottom as f64 - height - 48.0;
+    // stack on top of each other. The work-area rect is in physical pixels,
+    // so convert the logical window size with the monitor's DPI scale.
+    if let Some((area, scale)) = runtime::cursor_monitor_info() {
+        let physical_width = (width * scale).round() as i32;
+        let physical_height = (height * scale).round() as i32;
+        let gap = (48.0 * scale).round() as i32;
+        let offset = index as i32 * (physical_width + gap);
+        let center = i64::from(area.left) + i64::from(area.right - area.left) / 2;
+        let x = center + i64::from(offset) - i64::from(physical_width / 2);
+        let y = i64::from(area.bottom) - i64::from(physical_height) - i64::from(gap);
+        // Guard the clamp bounds: a window wider than the work area would
+        // otherwise make max < min and panic.
+        let max_x = i64::from(area.right - physical_width).max(i64::from(area.left));
+        let max_y = i64::from(area.bottom - physical_height).max(i64::from(area.top));
         let _ = window.set_position(tauri::PhysicalPosition::new(
-            x.round() as i32,
-            y.round() as i32,
+            x.clamp(i64::from(area.left), max_x) as i32,
+            y.clamp(i64::from(area.top), max_y) as i32,
         ));
     }
     let _ = window.show();
@@ -1494,9 +1529,21 @@ async fn auto_update_selected_pets(app: &tauri::AppHandle) -> Result<(), String>
     if upgrades.is_empty() {
         return Ok(());
     }
-    for (_, entry) in &upgrades {
-        install_entry(app, entry).await?;
+    // One failing download must not strand the other pets on their old
+    // versions: install each upgrade independently and only report the
+    // failures after the successful ones have been applied.
+    let mut installed: Vec<(String, PetCatalogEntryV1)> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
+    for upgrade in upgrades {
+        match install_entry(app, &upgrade.1).await {
+            Ok(()) => installed.push(upgrade),
+            Err(error) => failures.push(format!("{}@{}: {error}", upgrade.1.id, upgrade.1.version)),
+        }
     }
+    if installed.is_empty() {
+        return Err(failures.join("; "));
+    }
+    let upgrades = installed;
     wait_until_pet_idle(app).await;
     // Apply the upgrades to pets that are still selected, then re-sync windows.
     let changed = {

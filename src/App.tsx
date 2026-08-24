@@ -47,6 +47,7 @@ export function App() {
 function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
   const [settings, setSettings] = useState<SettingsV1 | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsSaveError, setSettingsSaveError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [catalog, setCatalog] = useState<PetCatalogV1 | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -101,7 +102,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
     });
     void listenEvent<string>("update://error", (error) => {
       setUpdateUi((current) =>
-        current.state === "ready" ? current : { state: "error", error: String(error) },
+        current.state === "ready" ? current : { state: "error", error: `检查更新失败：${String(error)}` },
       );
     }).then((dispose) => {
       if (cancelled) dispose();
@@ -117,16 +118,19 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
   useEffect(() => {
     let active = true;
     let disposeChanged: (() => void) | undefined;
-    void petCurrent().then(
-      (pet) => active && setCurrentPet(pet),
-      () => undefined,
-    );
+    // Register the listener before fetching the current pet: a pet switch
+    // landing between the fetch and a later subscription would otherwise be
+    // lost and the UI would keep rendering a stale pet.
     void listenEvent<PetChangedPayload>("pet://changed", (pet) => {
       if (active) setCurrentPet(pet);
     }).then((dispose) => {
       if (active) disposeChanged = dispose;
       else dispose();
     });
+    void petCurrent().then(
+      (pet) => active && setCurrentPet(pet),
+      () => undefined,
+    );
     return () => {
       active = false;
       disposeChanged?.();
@@ -251,21 +255,30 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
         setUpdateUi({ state: "up-to-date" });
       }
     } catch (error) {
-      setUpdateUi({ state: "error", error: String(error) });
+      // The full message is composed here so the UI never blames the wrong
+      // action (e.g. showing "check failed" for a failed install).
+      setUpdateUi({ state: "error", error: `检查更新失败：${String(error)}` });
     }
   };
   const installUpdate = () => {
-    void updaterInstall().catch((error) => setUpdateUi({ state: "error", error: String(error) }));
+    void updaterInstall().catch((error) =>
+      setUpdateUi({ state: "error", error: `安装更新失败：${String(error)}` }),
+    );
   };
   return (
     <SettingsApp
       initialSettings={settings}
+      settingsSaveError={settingsSaveError}
       currentPet={currentPet}
       onSettingsChange={(next) => {
         setSettings(next);
+        setSettingsSaveError(null);
         void settingsPatch(next).then(
           (sanitized) => setSettings(sanitized),
-          () => undefined,
+          // A failed save must be visible: the in-memory UI already shows the
+          // new value, so silently swallowing the error would let the user
+          // believe their change reached the disk.
+          (error) => setSettingsSaveError(`保存设置失败：${String(error)}`),
         );
       }}
       onRecall={() => void petRecall()}

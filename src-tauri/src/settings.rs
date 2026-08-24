@@ -98,7 +98,9 @@ impl SettingsV1 {
                 }
         });
         for item in &mut self.reminders {
-            item.snooze_minutes = 5;
+            // Keep a user-chosen snooze length within a sane range instead of
+            // flattening every reminder back to the 5-minute default.
+            item.snooze_minutes = item.snooze_minutes.clamp(1, 30);
         }
         if self.reminders.is_empty() {
             self.reminders = Self::default().reminders;
@@ -166,8 +168,11 @@ impl SettingsStore {
     pub fn patch(&self, current: &SettingsV1, patch: Value) -> io::Result<SettingsV1> {
         let mut merged = serde_json::to_value(current).map_err(io::Error::other)?;
         merge_json(&mut merged, patch);
+        // A patch that no longer parses as settings must fail loudly: silently
+        // keeping the old value would make the UI claim a save that never
+        // reached the disk.
         let next = serde_json::from_value::<SettingsV1>(merged)
-            .unwrap_or_else(|_| current.clone())
+            .map_err(|error| io::Error::other(format!("invalid settings patch: {error}")))?
             .sanitize();
         self.save(&next)?;
         Ok(next)
@@ -357,5 +362,27 @@ mod tests {
             vec!["yanghao", "lev-neon", "a", "b"]
         );
         assert_eq!(loaded.selected_pet.id, "yanghao");
+    }
+
+    #[test]
+    fn patch_rejects_an_unparseable_merge_instead_of_reverting_silently() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = SettingsStore::new(directory.path().join("settings.json"));
+        let current = store.load();
+        let result = store.patch(&current, json!({ "pet": { "speed": "not-a-number" } }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn keeps_a_valid_snooze_length_and_clamps_out_of_range_values() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = SettingsStore::new(directory.path().join("settings.json"));
+        let mut value = store.load_value();
+        value["reminders"][0]["snoozeMinutes"] = json!(10);
+        value["reminders"][1]["snoozeMinutes"] = json!(99);
+        store.save_value(&value).unwrap();
+        let loaded = store.load();
+        assert_eq!(loaded.reminders[0].snooze_minutes, 10);
+        assert_eq!(loaded.reminders[1].snooze_minutes, 30);
     }
 }
