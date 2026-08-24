@@ -188,6 +188,9 @@ export function SettingsApp({
             settings={settings}
             patchReminder={patchReminder}
             onAdd={(reminder) => persist({ ...settings, reminders: [...settings.reminders, reminder] })}
+            onRemove={(id) =>
+              persist({ ...settings, reminders: settings.reminders.filter((item) => item.id !== id) })
+            }
           />
         )}
         {section === "library" && (
@@ -331,10 +334,12 @@ function ReminderSettings({
   settings,
   patchReminder,
   onAdd,
+  onRemove,
 }: {
   settings: SettingsV1;
   patchReminder: (id: string, patch: Partial<Reminder>) => void;
   onAdd: (reminder: Reminder) => void;
+  onRemove: (id: string) => void;
 }) {
   return (
     <>
@@ -380,9 +385,14 @@ function ReminderSettings({
                 <input
                   type="time"
                   value={reminder.schedule.at}
-                  onChange={(event) =>
-                    patchReminder(reminder.id, { schedule: { kind: "daily", at: event.target.value } })
-                  }
+                  onChange={(event) => {
+                    // An emptied time input reports "" which the backend
+                    // sanitizer rejects, silently dropping the reminder.
+                    if (event.target.value === "") return;
+                    patchReminder(reminder.id, {
+                      schedule: { kind: "daily", at: event.target.value },
+                    });
+                  }}
                 />
               )}
             </label>
@@ -391,6 +401,14 @@ function ReminderSettings({
               checked={reminder.enabled}
               onChange={(value) => patchReminder(reminder.id, { enabled: value })}
             />
+            <button
+              className="icon-button reminder-delete"
+              aria-label={`删除提醒 ${reminder.title}`}
+              title="删除提醒"
+              onClick={() => onRemove(reminder.id)}
+            >
+              <Trash2 size={15} />
+            </button>
           </article>
         ))}
         <button

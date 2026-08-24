@@ -27,6 +27,7 @@ struct BubblePayload {
     reminder_ids: Vec<String>,
     title: String,
     message: String,
+    snooze_minutes: u8,
 }
 
 #[derive(Deserialize)]
@@ -130,6 +131,8 @@ pub fn start(app: tauri::AppHandle, runtime: std::sync::Arc<ReminderRuntime>) {
     let listener_runtime = runtime.clone();
     app.listen("bubble://action", move |event| {
         if let Ok(action) = serde_json::from_str::<BubbleAction>(event.payload()) {
+            // A merged bubble snoozes every included reminder at once, so use
+            // the longest requested window (matching what the bubble showed).
             let snooze_minutes = listener_app
                 .state::<AppState>()
                 .settings
@@ -139,8 +142,9 @@ pub fn start(app: tauri::AppHandle, runtime: std::sync::Arc<ReminderRuntime>) {
                     settings
                         .reminders
                         .iter()
-                        .find(|item| action.reminder_ids.contains(&item.id))
+                        .filter(|item| action.reminder_ids.contains(&item.id))
                         .map(|item| item.snooze_minutes)
+                        .max()
                 })
                 .unwrap_or(5);
             listener_runtime.handle_action(action, snooze_minutes);
@@ -170,11 +174,19 @@ pub fn start(app: tauri::AppHandle, runtime: std::sync::Arc<ReminderRuntime>) {
                 continue;
             }
             let ids: Vec<String> = due.iter().map(|(item, _)| item.id.clone()).collect();
+            // The merged bubble snoozes every included reminder at once, so
+            // advertise the longest requested window to match what happens.
+            let snooze_minutes = due
+                .iter()
+                .map(|(item, _)| item.snooze_minutes)
+                .max()
+                .unwrap_or(5);
             let payload = if due.len() == 1 {
                 BubblePayload {
                     reminder_ids: ids,
                     title: due[0].0.title.clone(),
                     message: due[0].0.message.clone(),
+                    snooze_minutes,
                 }
             } else {
                 BubblePayload {
@@ -185,6 +197,7 @@ pub fn start(app: tauri::AppHandle, runtime: std::sync::Arc<ReminderRuntime>) {
                         .map(|(item, _)| item.message.as_str())
                         .collect::<Vec<_>>()
                         .join(" · "),
+                    snooze_minutes,
                 }
             };
             let fired: Vec<(String, i64)> = due

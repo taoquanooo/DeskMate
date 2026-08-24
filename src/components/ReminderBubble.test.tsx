@@ -23,4 +23,18 @@ describe("ReminderBubble", () => {
     expect(onSnooze).toHaveBeenCalledOnce();
     expect(onDismiss).toHaveBeenCalledOnce();
   });
+
+  it("labels the snooze button with the actual snooze length", () => {
+    render(
+      <ReminderBubble
+        title="喝口水吧"
+        message="补充一点水分"
+        snoozeMinutes={10}
+        onComplete={() => undefined}
+        onSnooze={() => undefined}
+        onDismiss={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "10 分钟后提醒" })).toBeInTheDocument();
+  });
 });

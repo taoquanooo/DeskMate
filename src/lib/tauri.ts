@@ -13,6 +13,7 @@ export interface BubblePayload {
   reminderIds: string[];
   title: string;
   message: string;
+  snoozeMinutes?: number;
 }
 
 export interface UpdateStatus {

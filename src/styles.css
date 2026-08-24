@@ -442,10 +442,16 @@ input[type="range"]::-webkit-slider-thumb {
 .reminder-row {
   min-height: 90px;
   display: grid;
-  grid-template-columns: 1fr auto auto 44px;
+  grid-template-columns: 1fr auto auto 44px 30px;
   align-items: center;
   gap: 14px;
   border-bottom: 1px solid var(--divider);
+}
+.reminder-delete {
+  color: var(--muted);
+}
+.reminder-delete:hover {
+  color: #9b4e42;
 }
 .reminder-copy strong,
 .reminder-copy span {

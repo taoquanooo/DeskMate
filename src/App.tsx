@@ -390,6 +390,7 @@ function BubbleWindow() {
     <ReminderBubble
       title={payload.title}
       message={payload.message}
+      snoozeMinutes={payload.snoozeMinutes}
       onComplete={() => void finish("complete")}
       onSnooze={() => void finish("snooze")}
       onDismiss={() => void finish("dismiss")}

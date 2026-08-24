@@ -6,7 +6,7 @@ export interface Reminder {
   message: string;
   enabled: boolean;
   schedule: ReminderSchedule;
-  snoozeMinutes: 5;
+  snoozeMinutes: number;
 }
 
 export interface ReminderMessage {

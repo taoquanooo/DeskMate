@@ -114,7 +114,14 @@ function sanitizeReminders(value: unknown[], fallback: Reminder[]): Reminder[] {
       typeof item.enabled === "boolean"
     );
   });
-  return valid.length > 0 ? valid.map((item) => ({ ...item, snoozeMinutes: 5 })) : fallback;
+  // Clamp instead of overwriting: flattening every reminder to the 5-minute
+  // default here would undo the snooze length persisted by the backend.
+  return valid.length > 0
+    ? valid.map((item) => ({
+        ...item,
+        snoozeMinutes: clamp(numberOr(item.snoozeMinutes, 5), 1, 30),
+      }))
+    : fallback;
 }
 
 function cloneDefaults(): SettingsV1 {

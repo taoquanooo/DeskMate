@@ -4,6 +4,7 @@ import { Check, Clock3, X } from "lucide-react";
 export interface ReminderBubbleProps {
   title: string;
   message: string;
+  snoozeMinutes?: number;
   onComplete: () => void;
   onSnooze: () => void;
   onDismiss: () => void;
@@ -13,6 +14,7 @@ export interface ReminderBubbleProps {
 export function ReminderBubble({
   title,
   message,
+  snoozeMinutes = 5,
   onComplete,
   onSnooze,
   onDismiss,
@@ -38,7 +40,8 @@ export function ReminderBubble({
           完成
         </button>
         <button className="button button-secondary" onClick={onSnooze}>
-          <Clock3 size={16} />5 分钟后提醒
+          <Clock3 size={16} />
+          {snoozeMinutes} 分钟后提醒
         </button>
       </div>
     </section>

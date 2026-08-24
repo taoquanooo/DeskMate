@@ -63,4 +63,30 @@ describe("settings recovery", () => {
     });
     expect(settings.selectedPets).toEqual([{ id: "lev-neon", version: "1.0.0" }]);
   });
+
+  it("keeps a valid snooze length and clamps out-of-range values", () => {
+    const settings = mergeSettings({
+      schemaVersion: 1,
+      reminders: [
+        {
+          id: "custom-1",
+          title: "自定义提醒",
+          message: "休息一下吧",
+          enabled: true,
+          schedule: { kind: "interval", minutes: 30 },
+          snoozeMinutes: 10,
+        },
+        {
+          id: "custom-2",
+          title: "另一个提醒",
+          message: "休息一下吧",
+          enabled: true,
+          schedule: { kind: "interval", minutes: 30 },
+          snoozeMinutes: 99,
+        },
+      ],
+    });
+    expect(settings.reminders[0]?.snoozeMinutes).toBe(10);
+    expect(settings.reminders[1]?.snoozeMinutes).toBe(30);
+  });
 });

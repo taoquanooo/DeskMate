@@ -59,6 +59,20 @@ describe("SettingsApp", () => {
     expect(screen.getByLabelText("喝口水吧提醒时间")).toHaveAttribute("type", "time");
   });
 
+  it("removes a reminder from the list when its delete button is used", () => {
+    const onSettingsChange = vi.fn();
+    render(<SettingsApp initialSettings={DEFAULT_SETTINGS} onSettingsChange={onSettingsChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "提醒" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "删除提醒 喝口水吧" }));
+
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reminders: expect.not.arrayContaining([expect.objectContaining({ id: "water" })]),
+      }),
+    );
+  });
+
   it("shows both bundled pets, excludes duplicate catalog entries, and opens both recommendations", () => {
     const onOpenLocalPetFolder = vi.fn();
     const onLocalPetRefresh = vi.fn();
