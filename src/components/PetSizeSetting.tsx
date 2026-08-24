@@ -37,8 +37,7 @@ export function PetSizeSetting({ scale, onChange }: PetSizeSettingProps) {
   };
 
   const sliderValue = Math.min(MAX_PERCENT, Math.max(MIN_PERCENT, percentage));
-  const progress =
-    ((sliderValue - MIN_PERCENT) / (MAX_PERCENT - MIN_PERCENT)) * 100;
+  const progress = ((sliderValue - MIN_PERCENT) / (MAX_PERCENT - MIN_PERCENT)) * 100;
 
   return (
     <label className="setting-row pet-size-row">

@@ -519,8 +519,15 @@ input[type="range"]::-webkit-slider-thumb {
   animation: refresh-dot-pulse 2s ease-in-out infinite;
 }
 @keyframes refresh-dot-pulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.25); opacity: 0.8; }
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.25);
+    opacity: 0.8;
+  }
 }
 .library-row {
   min-height: 158px;
