@@ -1282,20 +1282,33 @@ fn install_downloaded_package(
     std::fs::create_dir_all(&id_root).map_err(|error| error.to_string())?;
     let destination = id_root.join(&entry.version);
     if destination.exists() {
-        return Ok(());
+        // An existing directory only counts as installed while it still holds
+        // a loadable pet; a leftover from a crash would otherwise be reported
+        // as success and break at load time.
+        if pets::load_pet_directory(&destination).is_ok() {
+            return Ok(());
+        }
+        std::fs::remove_dir_all(&destination).map_err(|error| error.to_string())?;
     }
     let staging = id_root.join(format!(
         ".{}.staging-{}",
         entry.version,
         chrono::Utc::now().timestamp_millis()
     ));
-    pets::extract_validated_package(package, &staging).map_err(|error| error.to_string())?;
-    let (manifest, _) = pets::load_pet_directory(&staging)?;
-    if manifest.id != entry.id {
+    let install = (|| -> Result<(), String> {
+        pets::extract_validated_package(package, &staging).map_err(|error| error.to_string())?;
+        let (manifest, _) = pets::load_pet_directory(&staging)?;
+        if manifest.id != entry.id {
+            return Err("pet manifest id does not match the catalog".into());
+        }
+        std::fs::rename(&staging, &destination).map_err(|error| error.to_string())
+    })();
+    if install.is_err() {
+        // Retries create a fresh timestamped staging dir, so leftovers from a
+        // failed attempt would accumulate forever unless removed here.
         let _ = std::fs::remove_dir_all(&staging);
-        return Err("pet manifest id does not match the catalog".into());
     }
-    std::fs::rename(&staging, &destination).map_err(|error| error.to_string())?;
+    install?;
     let _ = app.emit(
         "pet://installed",
         serde_json::json!({ "id": entry.id, "version": entry.version }),

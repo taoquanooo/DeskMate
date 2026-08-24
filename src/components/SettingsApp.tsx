@@ -360,20 +360,14 @@ function ReminderSettings({
                 {reminder.schedule.kind === "interval" ? "间隔分钟" : "提醒时间"}
               </span>
               {reminder.schedule.kind === "interval" ? (
-                <>
-                  <input
-                    type="number"
-                    min={1}
-                    max={1440}
-                    value={reminder.schedule.minutes}
-                    onChange={(event) =>
-                      patchReminder(reminder.id, {
-                        schedule: { kind: "interval", minutes: Number(event.target.value) },
-                      })
-                    }
-                  />
-                  <span>分钟</span>
-                </>
+                <IntervalMinutesField
+                  value={reminder.schedule.minutes}
+                  onCommit={(minutes) =>
+                    patchReminder(reminder.id, {
+                      schedule: { kind: "interval", minutes },
+                    })
+                  }
+                />
               ) : (
                 <input
                   type="time"
@@ -758,6 +752,50 @@ function About({
         <MonitorUp size={17} />
         无账号、无云同步、无遥测。你的设置只留在本机。
       </p>
+    </>
+  );
+}
+
+const REMINDER_MIN_MINUTES = 1;
+const REMINDER_MAX_MINUTES = 1440;
+
+function IntervalMinutesField({ value, onCommit }: { value: number; onCommit: (minutes: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+
+  useEffect(() => setDraft(String(value)), [value]);
+
+  // Clamp on commit so an empty or out-of-range draft can never reach the
+  // settings store: the backend sanitizer would silently drop such reminders.
+  const commitDraft = () => {
+    const parsed = Number(draft);
+    if (draft.trim() === "" || !Number.isFinite(parsed)) {
+      setDraft(String(value));
+      return;
+    }
+    const next = Math.min(REMINDER_MAX_MINUTES, Math.max(REMINDER_MIN_MINUTES, Math.round(parsed)));
+    setDraft(String(next));
+    if (next !== value) onCommit(next);
+  };
+
+  return (
+    <>
+      <input
+        type="number"
+        min={REMINDER_MIN_MINUTES}
+        max={REMINDER_MAX_MINUTES}
+        step={1}
+        value={draft}
+        aria-label="间隔分钟"
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commitDraft}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commitDraft();
+          }
+        }}
+      />
+      <span>分钟</span>
     </>
   );
 }

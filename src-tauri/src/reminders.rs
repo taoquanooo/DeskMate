@@ -56,53 +56,68 @@ impl ReminderRuntime {
             for item in reminders {
                 last.insert(item.id.clone(), now);
             }
+            // A snooze requested before sleeping must not replay hours later.
+            self.snoozed_until
+                .lock()
+                .expect("reminder state poisoned")
+                .clear();
         }
         resumed
     }
 
-    fn due_within(&self, reminders: &[Reminder], window: Duration) -> Vec<Reminder> {
-        let now = epoch_millis();
-        let horizon = now + window.as_millis() as i64;
+    /// Reminders whose due time has passed, paired with that due time. A
+    /// snoozed reminder becomes due exactly once when its snooze window ends,
+    /// independent of its regular schedule.
+    fn due_now(&self, reminders: &[Reminder], now: i64) -> Vec<(Reminder, i64)> {
         let last = self.last_triggered.lock().expect("reminder state poisoned");
         let snoozed = self.snoozed_until.lock().expect("reminder state poisoned");
         reminders
             .iter()
-            .filter(|item| {
-                if !item.enabled || snoozed.get(&item.id).is_some_and(|until| *until > now) {
-                    return false;
+            .filter_map(|item| {
+                if !item.enabled {
+                    return None;
+                }
+                if let Some(&until) = snoozed.get(&item.id) {
+                    return (until <= now).then(|| (item.clone(), until));
                 }
                 let previous = *last.get(&item.id).unwrap_or(&now);
-                next_due(item, previous, now).is_some_and(|due| due <= horizon)
+                let due = next_due(item, previous, now)?;
+                (due <= now).then(|| (item.clone(), due))
             })
-            .cloned()
             .collect()
     }
 
-    fn mark_triggered(&self, ids: &[String], timestamp: i64) {
+    /// Record a delivery using the reminder's own due time (not "now") so the
+    /// next due time stays anchored to the schedule instead of drifting, and
+    /// an already-fired reminder can never look due again on the next tick.
+    fn mark_fired(&self, fired: &[(String, i64)]) {
         let mut last = self.last_triggered.lock().expect("reminder state poisoned");
-        for id in ids {
-            last.insert(id.clone(), timestamp);
+        let mut snoozed = self.snoozed_until.lock().expect("reminder state poisoned");
+        for (id, timestamp) in fired {
+            last.insert(id.clone(), *timestamp);
+            snoozed.remove(id);
         }
     }
 
     fn handle_action(&self, action: BubbleAction, snooze_minutes: u8) {
         let now = epoch_millis();
         if action.action == "snooze" {
-            // The reminder was already marked triggered when the bubble was shown.
-            // Only advance the suppression window so it re-fires after the snooze;
-            // resetting last_triggered here would defer it a full interval and make
-            // snooze behave exactly like dismiss.
+            // The bubble was already shown (the reminder is marked fired with
+            // its due time). Schedule one re-fire when the snooze window ends;
+            // due_now treats an elapsed snooze as due and mark_fired clears
+            // the entry, so it fires exactly once.
             let until = now + i64::from(snooze_minutes) * 60_000;
             let mut snoozed = self.snoozed_until.lock().expect("reminder state poisoned");
             for id in &action.reminder_ids {
                 snoozed.insert(id.clone(), until);
             }
         } else {
-            self.mark_triggered(&action.reminder_ids, now);
-            let mut snoozed = self.snoozed_until.lock().expect("reminder state poisoned");
-            for id in &action.reminder_ids {
-                snoozed.remove(id);
-            }
+            let fired: Vec<(String, i64)> = action
+                .reminder_ids
+                .iter()
+                .map(|id| (id.clone(), now))
+                .collect();
+            self.mark_fired(&fired);
         }
     }
 }
@@ -146,17 +161,17 @@ pub fn start(app: tauri::AppHandle, runtime: std::sync::Arc<ReminderRuntime>) {
             {
                 continue;
             }
-            let due = runtime.due_within(&settings.reminders, Duration::from_secs(5 * 60));
+            let now = epoch_millis();
+            let due = runtime.due_now(&settings.reminders, now);
             if due.is_empty() {
                 continue;
             }
-            let ids: Vec<String> = due.iter().map(|item| item.id.clone()).collect();
-            runtime.mark_triggered(&ids, epoch_millis());
+            let ids: Vec<String> = due.iter().map(|(item, _)| item.id.clone()).collect();
             let payload = if due.len() == 1 {
                 BubblePayload {
                     reminder_ids: ids,
-                    title: due[0].title.clone(),
-                    message: due[0].message.clone(),
+                    title: due[0].0.title.clone(),
+                    message: due[0].0.message.clone(),
                 }
             } else {
                 BubblePayload {
@@ -164,11 +179,16 @@ pub fn start(app: tauri::AppHandle, runtime: std::sync::Arc<ReminderRuntime>) {
                     title: "休息一下".into(),
                     message: due
                         .iter()
-                        .map(|item| item.message.as_str())
+                        .map(|(item, _)| item.message.as_str())
                         .collect::<Vec<_>>()
                         .join(" · "),
                 }
             };
+            let fired: Vec<(String, i64)> = due
+                .iter()
+                .map(|(item, timestamp)| (item.id.clone(), *timestamp))
+                .collect();
+            runtime.mark_fired(&fired);
             show_bubble(&app, payload);
         }
     });
@@ -225,19 +245,83 @@ fn epoch_millis() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::next_due;
+    use super::{next_due, ReminderRuntime};
     use crate::settings::{Reminder, ReminderSchedule};
 
-    #[test]
-    fn interval_reminder_uses_last_delivery_not_missed_history() {
-        let reminder = Reminder {
+    fn interval_reminder() -> Reminder {
+        Reminder {
             id: "water".into(),
             title: "water".into(),
             message: "drink".into(),
             enabled: true,
             schedule: ReminderSchedule::Interval { minutes: 45 },
             snooze_minutes: 5,
-        };
+        }
+    }
+
+    #[test]
+    fn interval_reminder_uses_last_delivery_not_missed_history() {
+        let reminder = interval_reminder();
         assert_eq!(next_due(&reminder, 1_000, 9_999), Some(2_701_000));
+    }
+
+    #[test]
+    fn fired_interval_does_not_re_fire_before_next_due() {
+        let reminder = interval_reminder();
+        let runtime = ReminderRuntime::default();
+        let now = 10_000_000;
+        // Simulate a previous delivery so the reminder is armed from `now`.
+        runtime
+            .last_triggered
+            .lock()
+            .expect("reminder state poisoned")
+            .insert(reminder.id.clone(), now);
+
+        let due = runtime.due_now(std::slice::from_ref(&reminder), now + 45 * 60_000);
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].1, now + 45 * 60_000);
+        runtime.mark_fired(&[(reminder.id.clone(), due[0].1)]);
+
+        assert!(runtime
+            .due_now(std::slice::from_ref(&reminder), now + 45 * 60_000 + 60_000)
+            .is_empty());
+
+        let next = runtime.due_now(std::slice::from_ref(&reminder), now + 90 * 60_000);
+        assert_eq!(next.len(), 1);
+    }
+
+    #[test]
+    fn snoozed_reminder_fires_exactly_once() {
+        let reminder = interval_reminder();
+        let runtime = ReminderRuntime::default();
+        let now = 10_000_000;
+        runtime
+            .last_triggered
+            .lock()
+            .expect("reminder state poisoned")
+            .insert(reminder.id.clone(), now);
+
+        let due = runtime.due_now(std::slice::from_ref(&reminder), now + 45 * 60_000);
+        runtime.mark_fired(&[(reminder.id.clone(), due[0].1)]);
+
+        let snooze_end = now + 50 * 60_000;
+        runtime
+            .snoozed_until
+            .lock()
+            .expect("reminder state poisoned")
+            .insert(reminder.id.clone(), snooze_end);
+
+        assert!(runtime
+            .due_now(std::slice::from_ref(&reminder), now + 46 * 60_000)
+            .is_empty());
+
+        let refire = runtime.due_now(std::slice::from_ref(&reminder), snooze_end + 1_000);
+        assert_eq!(refire.len(), 1);
+        assert_eq!(refire[0].1, snooze_end);
+
+        runtime.mark_fired(&[(reminder.id.clone(), refire[0].1)]);
+        assert!(runtime
+            .due_now(std::slice::from_ref(&reminder), snooze_end + 2_000)
+            .is_empty());
     }
 }
