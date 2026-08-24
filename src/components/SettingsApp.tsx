@@ -50,6 +50,7 @@ export interface SettingsAppProps {
   onInstallUpdate?: () => void;
   catalog?: PetCatalogV1 | null;
   catalogError?: string | null;
+  catalogUpdateAvailable?: boolean;
   installedPets?: InstalledPet[];
   installProgress?: Record<string, InstallProgress>;
   onCatalogRefresh?: () => void;
@@ -87,6 +88,7 @@ export function SettingsApp({
   onInstallUpdate,
   catalog,
   catalogError,
+  catalogUpdateAvailable = false,
   installedPets = [],
   installProgress = {},
   onCatalogRefresh,
@@ -197,6 +199,7 @@ export function SettingsApp({
           <PetLibrary
             catalog={catalog}
             error={catalogError}
+            updateAvailable={catalogUpdateAvailable}
             selectedPets={settings.selectedPets}
             onRefresh={onCatalogRefresh}
             onInstall={onPetInstall}
@@ -431,6 +434,7 @@ function ReminderSettings({
 function PetLibrary({
   catalog,
   error,
+  updateAvailable = false,
   selectedPets,
   onRefresh,
   onInstall,
@@ -449,6 +453,7 @@ function PetLibrary({
 }: {
   catalog?: PetCatalogV1 | null;
   error?: string | null;
+  updateAvailable?: boolean;
   selectedPets: PetSelection[];
   onRefresh?: () => void;
   onInstall?: (id: string, version: string) => void;
@@ -591,9 +596,10 @@ function PetLibrary({
             ? "通过 GitHub 刷新官方宠物目录。"
             : "官方 GitHub 预置宠物可刷新目录查看。宠物包在安装前会验证哈希与图集结构。"}
         </span>
-        <button className="button button-secondary" onClick={onRefresh}>
+        <button className="button button-secondary refresh-button" onClick={onRefresh}>
           <RefreshCw size={15} />
           刷新目录
+          {updateAvailable && <span className="refresh-dot" aria-label="有新宠物可用" />}
         </button>
       </div>
       {BUILT_IN_PETS.map((pet) => (

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 
-// The slider covers the common range; the number field accepts a wider custom
-// range so users are not capped at 300%.
-const SLIDER_MIN_PERCENT = 25;
-const SLIDER_MAX_PERCENT = 300;
+// The slider and the number field share the same full range (10%–1000%) so
+// dragging always moves the actual value instead of being clamped to a
+// sub-range and then fighting the typed number. The step is coarser (10%) on
+// the slider for ergonomic dragging; the number field keeps 1% precision.
 const MIN_PERCENT = 10;
 const MAX_PERCENT = 1000;
+const SLIDER_STEP = 10;
 
 export interface PetSizeSettingProps {
   scale: number;
@@ -29,16 +30,15 @@ export function PetSizeSetting({ scale, onChange }: PetSizeSettingProps) {
       return;
     }
     // 0% or negative sizes would make the pet window disappear entirely, so
-    // the custom range is wide but still bounded.
+    // the range is wide but still bounded.
     const next = Math.min(MAX_PERCENT, Math.max(MIN_PERCENT, Math.round(parsed)));
     setDraft(String(next));
     if (next !== percentage) onChange(next / 100);
   };
 
-  // A custom value beyond the slider range pins the thumb at the nearest end
-  // instead of pushing the handle outside its track.
-  const sliderValue = Math.min(SLIDER_MAX_PERCENT, Math.max(SLIDER_MIN_PERCENT, percentage));
-  const progress = ((sliderValue - SLIDER_MIN_PERCENT) / (SLIDER_MAX_PERCENT - SLIDER_MIN_PERCENT)) * 100;
+  const sliderValue = Math.min(MAX_PERCENT, Math.max(MIN_PERCENT, percentage));
+  const progress =
+    ((sliderValue - MIN_PERCENT) / (MAX_PERCENT - MIN_PERCENT)) * 100;
 
   return (
     <label className="setting-row pet-size-row">
@@ -50,9 +50,9 @@ export function PetSizeSetting({ scale, onChange }: PetSizeSettingProps) {
         <input
           aria-label="大小"
           type="range"
-          min={SLIDER_MIN_PERCENT}
-          max={SLIDER_MAX_PERCENT}
-          step={5}
+          min={MIN_PERCENT}
+          max={MAX_PERCENT}
+          step={SLIDER_STEP}
           value={sliderValue}
           style={{ "--range-progress": `${progress}%` } as React.CSSProperties}
           onChange={(event) => onChange(Number(event.target.value) / 100)}

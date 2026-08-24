@@ -4,13 +4,13 @@ import { describe, expect, it, vi } from "vitest";
 import { PetSizeSetting } from "./PetSizeSetting";
 
 describe("PetSizeSetting", () => {
-  it("changes size from the 25% to 300% slider", () => {
+  it("changes size from the slider across the full 10%–1000% range", () => {
     const onChange = vi.fn();
     render(<PetSizeSetting scale={1} onChange={onChange} />);
 
     const slider = screen.getByRole("slider", { name: "大小" });
-    expect(slider).toHaveAttribute("min", "25");
-    expect(slider).toHaveAttribute("max", "300");
+    expect(slider).toHaveAttribute("min", "10");
+    expect(slider).toHaveAttribute("max", "1000");
     fireEvent.change(slider, { target: { value: "250" } });
 
     expect(onChange).toHaveBeenCalledWith(2.5);
@@ -29,7 +29,7 @@ describe("PetSizeSetting", () => {
     expect(onChange).toHaveBeenCalledWith(3.5);
   });
 
-  it("accepts custom sizes beyond the slider range but bounds them", () => {
+  it("slider stays in sync with custom typed values across the whole range", () => {
     const onChange = vi.fn();
     const Controlled = () => {
       const [scale, setScale] = useState(1);
@@ -46,13 +46,20 @@ describe("PetSizeSetting", () => {
     render(<Controlled />);
 
     const input = screen.getByRole("spinbutton", { name: "桌宠大小百分比" });
+    const slider = screen.getByRole("slider", { name: "大小" });
+
+    // Type a large custom value; the slider must reflect it (not pin to an
+    // earlier max) so the user can drag it back down smoothly.
     fireEvent.change(input, { target: { value: "800" } });
     fireEvent.blur(input);
     expect(onChange).toHaveBeenCalledWith(8);
+    expect(slider).toHaveValue("800");
 
-    const slider = screen.getByRole("slider", { name: "大小" });
-    // The thumb stays pinned inside its own 25–300 track.
-    expect(slider).toHaveValue("300");
+    // Drag the slider back down — this must actually move the value instead
+    // of being stuck because the slider's max was lower than the current value.
+    fireEvent.change(slider, { target: { value: "300" } });
+    expect(onChange).toHaveBeenCalledWith(3);
+    expect(input).toHaveValue(300);
   });
 
   it("rejects sizes that would make the pet window disappear", () => {

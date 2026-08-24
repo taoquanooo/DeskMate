@@ -80,10 +80,14 @@ export async function settingsGet(): Promise<SettingsV1> {
     : { ...structuredClone(DEFAULT_SETTINGS), onboardingComplete: true };
 }
 
-export async function settingsPatch(settings: SettingsV1): Promise<SettingsV1> {
-  if (isTauri()) return mergeSettings(await invoke("settings_patch", { patch: settings }));
-  window.localStorage.setItem("deskmate.settings.v1", JSON.stringify(settings));
-  return settings;
+export async function settingsPatch(patch: Partial<SettingsV1>): Promise<SettingsV1> {
+  if (isTauri()) return mergeSettings(await invoke("settings_patch", { patch }));
+  // Browser fallback: merge patch into current stored value so omitted fields
+  // (like selectedPets, which is managed by petSelectionSet) are preserved.
+  const current = await settingsGet();
+  const merged = { ...current, ...patch, pet: { ...current.pet, ...patch.pet } };
+  window.localStorage.setItem("deskmate.settings.v1", JSON.stringify(merged));
+  return mergeSettings(merged);
 }
 
 export async function autostartSet(enabled: boolean) {
@@ -92,6 +96,11 @@ export async function autostartSet(enabled: boolean) {
 
 export async function petCatalogRefresh(): Promise<PetCatalogV1> {
   return invoke("pet_catalog_refresh");
+}
+
+export async function catalogStatus(): Promise<boolean> {
+  if (isTauri()) return invoke<boolean>("catalog_status");
+  return false;
 }
 
 export async function petInstall(id: string, version: string) {

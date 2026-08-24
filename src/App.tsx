@@ -14,6 +14,7 @@ import {
   listenEvent,
   petRecall,
   petCatalogRefresh,
+  catalogStatus,
   petCurrent,
   petInstall,
   petUninstall,
@@ -51,6 +52,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [catalog, setCatalog] = useState<PetCatalogV1 | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [catalogUpdateAvailable, setCatalogUpdateAvailable] = useState(false);
   const [localPetScan, setLocalPetScan] = useState<LocalPetScanV1>({
     folderPath: "",
     pets: [],
@@ -72,6 +74,29 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
       active = false;
     };
   }, [loadAttempt]);
+
+  useEffect(() => {
+    if (!settings?.onboardingComplete) return;
+    let active = true;
+    let disposeUpdate: (() => void) | undefined;
+    // Check the initial red-dot state from the backend (it knows whether the
+    // on-disk cache is newer than what the user last acknowledged).
+    void catalogStatus().then(
+      (available) => active && setCatalogUpdateAvailable(available),
+      () => undefined,
+    );
+    // Listen for the background refresh discovering new content.
+    void listenEvent<void>("catalog://update-available", () => {
+      if (active) setCatalogUpdateAvailable(true);
+    }).then((dispose) => {
+      if (active) disposeUpdate = dispose;
+      else dispose();
+    });
+    return () => {
+      active = false;
+      disposeUpdate?.();
+    };
+  }, [settings?.onboardingComplete]);
 
   useEffect(() => {
     if (!settings?.onboardingComplete) return;
@@ -236,7 +261,14 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
   const persistSettings = (next: SettingsV1) => {
     setSettings(next);
     setSettingsSaveError(null);
-    void settingsPatch(next).then(
+    // Pet selection is managed by the dedicated `pet_selection_set` command
+    // (which also syncs windows). If we send `selectedPet`/`selectedPets` as
+    // part of a generic settings patch, the in-flight request can carry a
+    // stale list and overwrite a concurrent pet switch, making multi-pet and
+    // switching appear broken. Strip them from the patch so the backend keeps
+    // whatever is currently in its state.
+    const { selectedPet: _omitPet, selectedPets: _omitPets, ...patch } = next;
+    void settingsPatch(patch).then(
       (sanitized) => setSettings(sanitized),
       // A failed save must be visible: the in-memory UI already shows the
       // new value, so silently swallowing the error would let the user
@@ -260,6 +292,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
     try {
       setCatalog(await petCatalogRefresh());
       setCatalogError(null);
+      setCatalogUpdateAvailable(false);
     } catch (error) {
       setCatalogError(String(error));
     }
@@ -314,6 +347,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
       onInstallUpdate={installUpdate}
       catalog={catalog}
       catalogError={catalogError}
+      catalogUpdateAvailable={catalogUpdateAvailable}
       installedPets={installedPetList}
       installProgress={installProgress}
       onCatalogRefresh={() => void refreshCatalog()}

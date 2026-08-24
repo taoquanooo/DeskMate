@@ -60,6 +60,9 @@ pub struct AppState {
     client: reqwest::Client,
     paused: AtomicBool,
     fullscreen: AtomicBool,
+    // Set to true when the user asks to quit so CloseRequested handlers do
+    // not re-hide windows and trap the app in a half-exited state.
+    exiting: AtomicBool,
     // Per-pet-window flags, keyed by window label ("pet", "pet-2", ...), so
     // each desktop pet can be dragged or interacted with independently.
     dragging: Mutex<HashMap<String, bool>>,
@@ -68,6 +71,10 @@ pub struct AppState {
     pet_engines: Mutex<HashSet<String>>,
     ready_update: Mutex<Option<ReadyUpdate>>,
     install_lock: tokio::sync::Mutex<()>,
+    // Set to true when a background check discovers that the remote pet catalog
+    // is newer than what the user last acknowledged. The settings UI reads this
+    // to show a red-dot badge on the refresh button.
+    catalog_update_available: AtomicBool,
 }
 
 pub(crate) fn window_flag(flags: &Mutex<HashMap<String, bool>>, label: &str) -> bool {
@@ -187,7 +194,17 @@ fn autostart_set(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
 
 #[tauri::command]
 async fn pet_catalog_refresh(app: tauri::AppHandle) -> Result<PetCatalogV1, String> {
-    refresh_catalog(&app).await
+    let catalog = refresh_catalog(&app).await?;
+    // User-initiated refresh counts as "viewed": dismiss the red dot.
+    mark_catalog_viewed(&app);
+    Ok(catalog)
+}
+
+#[tauri::command]
+fn catalog_status(app: tauri::AppHandle) -> bool {
+    app.state::<AppState>()
+        .catalog_update_available
+        .load(Ordering::Relaxed)
 }
 
 #[tauri::command]
@@ -604,6 +621,11 @@ async fn updater_install(app: tauri::AppHandle) -> Result<(), String> {
         .update
         .install(&ready.bytes)
         .map_err(|error| format!("安装更新失败：{error}"))?;
+    // Let CloseRequested handlers know we are intentionally exiting so they
+    // don't re-hide windows and trap the process during restart.
+    app.state::<AppState>()
+        .exiting
+        .store(true, Ordering::Relaxed);
     app.restart();
 }
 
@@ -651,6 +673,7 @@ pub fn run() {
                 }
             };
             let catalog = load_cached_catalog(&data_dir);
+            let catalog_update_available = catalog_has_unseen_updates(&data_dir, &catalog);
             let reminder_runtime = Arc::new(reminders::ReminderRuntime::default());
             reminder_runtime.initialize(&settings.reminders);
             app.manage(AppState {
@@ -667,12 +690,14 @@ pub fn run() {
                     .build()?,
                 paused: AtomicBool::new(false),
                 fullscreen: AtomicBool::new(false),
+                exiting: AtomicBool::new(false),
                 dragging: Mutex::new(HashMap::new()),
                 interacting: Mutex::new(HashMap::new()),
                 moving: Mutex::new(HashMap::new()),
                 pet_engines: Mutex::new(HashSet::new()),
                 ready_update: Mutex::new(None),
                 install_lock: tokio::sync::Mutex::new(()),
+                catalog_update_available: AtomicBool::new(catalog_update_available),
             });
 
             let drag_app = app.handle().clone();
@@ -741,6 +766,18 @@ pub fn run() {
                 let window = settings_window.clone();
                 settings_window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        // Only hide-to-tray when the user closes the window
+                        // manually; during app.exit() we must let it close or
+                        // the process hangs waiting for a window that refuses
+                        // to die.
+                        let is_exiting = window
+                            .app_handle()
+                            .state::<AppState>()
+                            .exiting
+                            .load(Ordering::Relaxed);
+                        if is_exiting {
+                            return;
+                        }
                         api.prevent_close();
                         let _ = window.hide();
                     }
@@ -759,6 +796,7 @@ pub fn run() {
             settings_patch,
             autostart_set,
             pet_catalog_refresh,
+            catalog_status,
             pet_install,
             installed_pets,
             pet_uninstall,
@@ -958,7 +996,12 @@ fn create_tray(app: &mut tauri::App) -> tauri::Result<()> {
                     .is_some_and(|settings| !settings.pet.click_through);
                 let _ = set_click_through(app, enabled);
             }
-            "quit" => app.exit(0),
+            "quit" => {
+                app.state::<AppState>()
+                    .exiting
+                    .store(true, Ordering::Relaxed);
+                app.exit(0);
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -1009,12 +1052,17 @@ fn register_shortcuts(app: &mut tauri::App) -> tauri::Result<()> {
 fn start_online_refreshes(app: tauri::AppHandle) {
     let catalog_app = app.clone();
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(20)).await;
+        // Do a quick silent check a few seconds after launch so the red dot can
+        // appear promptly if new pets were published since the last run.
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        if refresh_catalog(&catalog_app).await.is_ok() {
+            let _ = auto_update_selected_pets(&catalog_app).await;
+        }
         loop {
+            tokio::time::sleep(Duration::from_secs(6 * 60 * 60)).await;
             if refresh_catalog(&catalog_app).await.is_ok() {
                 let _ = auto_update_selected_pets(&catalog_app).await;
             }
-            tokio::time::sleep(Duration::from_secs(6 * 60 * 60)).await;
         }
     });
     tauri::async_runtime::spawn(async move {
@@ -1037,11 +1085,46 @@ async fn refresh_catalog(app: &tauri::AppHandle) -> Result<PetCatalogV1, String>
     let app_version = semver::Version::parse(APP_VERSION).map_err(|error| error.to_string())?;
     pets::validate_catalog(&catalog, &app_version)?;
     let state = app.state::<AppState>();
+    let old_fingerprint = state
+        .catalog
+        .read()
+        .map(|guard| guard.as_ref().map(catalog_fingerprint))
+        .unwrap_or(None);
+    let new_fingerprint = catalog_fingerprint(&catalog);
     SettingsStore::new(state.data_dir.join("catalog-v1.json"))
         .save_value(&serde_json::to_value(&catalog).map_err(|error| error.to_string())?)
         .map_err(|error| error.to_string())?;
     *state.catalog.write().map_err(|_| "catalog lock poisoned")? = Some(catalog.clone());
+    // If the catalog content actually changed and the user hasn't manually
+    // refreshed yet, light up the red dot and tell the settings window.
+    if old_fingerprint.as_deref() != Some(&new_fingerprint) {
+        let viewed = load_viewed_catalog_fingerprint(&state.data_dir);
+        if viewed.as_deref() != Some(&new_fingerprint) {
+            state
+                .catalog_update_available
+                .store(true, Ordering::Relaxed);
+            let _ = app.emit("catalog://update-available", ());
+        }
+    }
     Ok(catalog)
+}
+
+/// Mark the currently cached catalog as "seen" by the user (i.e. they clicked
+/// the refresh button). Clears the red-dot state until the next background
+/// check finds new content.
+fn mark_catalog_viewed(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    let fingerprint = state
+        .catalog
+        .read()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(catalog_fingerprint));
+    if let Some(fp) = fingerprint {
+        save_viewed_catalog_fingerprint(&state.data_dir, &fp);
+    }
+    state
+        .catalog_update_available
+        .store(false, Ordering::Relaxed);
 }
 
 async fn fetch_catalog_bytes(app: &tauri::AppHandle) -> Result<Vec<u8>, String> {
@@ -1684,4 +1767,59 @@ fn load_cached_catalog(data_dir: &Path) -> Option<PetCatalogV1> {
     let app_version = semver::Version::parse(APP_VERSION).ok()?;
     pets::validate_catalog(&catalog, &app_version).ok()?;
     Some(catalog)
+}
+
+/// Compute a stable fingerprint for a catalog so we can tell whether the
+/// remote content actually changed (as opposed to re-fetching the same bytes).
+/// The fingerprint is a sorted, comma-joined list of "id@version" entries,
+/// which is cheap to compute and compare and good enough for an update dot.
+fn catalog_fingerprint(catalog: &PetCatalogV1) -> String {
+    let mut keys: Vec<String> = catalog
+        .pets
+        .iter()
+        .map(|pet| format!("{}@{}", pet.id, pet.version))
+        .collect();
+    keys.sort();
+    keys.join(",")
+}
+
+/// Path to the tiny meta file that remembers which catalog fingerprint the
+/// user last acknowledged by clicking the refresh button.
+fn catalog_meta_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("catalog-meta.json")
+}
+
+fn load_viewed_catalog_fingerprint(data_dir: &Path) -> Option<String> {
+    let bytes = std::fs::read(catalog_meta_path(data_dir)).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    value
+        .get("viewedFingerprint")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+fn save_viewed_catalog_fingerprint(data_dir: &Path, fingerprint: &str) {
+    let _ = std::fs::write(
+        catalog_meta_path(data_dir),
+        serde_json::to_vec_pretty(&serde_json::json!({ "viewedFingerprint": fingerprint }))
+            .unwrap_or_default(),
+    );
+}
+
+/// Compare the on-disk cached catalog against the last fingerprint the user
+/// acknowledged. Returns true when the cache has pets the user hasn't seen.
+fn catalog_has_unseen_updates(data_dir: &Path, catalog: &Option<PetCatalogV1>) -> bool {
+    let Some(catalog) = catalog else {
+        return false;
+    };
+    let current = catalog_fingerprint(catalog);
+    match load_viewed_catalog_fingerprint(data_dir) {
+        Some(viewed) => viewed != current,
+        // First run with no meta file: don't spam the dot immediately, treat
+        // the currently cached catalog as "already seen".
+        None => {
+            save_viewed_catalog_fingerprint(data_dir, &current);
+            false
+        }
+    }
 }
