@@ -1,7 +1,7 @@
 import { createDefaultReminders, type Reminder } from "./reminders";
 
-export const MIN_PET_SCALE = 0.25;
-export const MAX_PET_SCALE = 3;
+export const MIN_PET_SCALE = 0.1;
+export const MAX_PET_SCALE = 10;
 export const MAX_ACTIVE_PETS = 4;
 
 export interface PetSelection {

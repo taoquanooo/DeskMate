@@ -121,6 +121,9 @@ struct ReadyUpdate {
 #[serde(rename_all = "camelCase")]
 struct UpdateStatus {
     available: bool,
+    /// Whether the installer was fully downloaded and staged. A failed
+    /// download must not be reported as a failed check.
+    downloaded: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -594,13 +597,13 @@ async fn updater_install(app: tauri::AppHandle) -> Result<(), String> {
         .state::<AppState>()
         .ready_update
         .lock()
-        .map_err(|_| "updater lock poisoned")?
+        .map_err(|_| "更新状态不可用，请重启应用后重试")?
         .clone()
-        .ok_or("no downloaded update is ready")?;
+        .ok_or("更新尚未下载完成，请稍后重试")?;
     ready
         .update
         .install(&ready.bytes)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| format!("安装更新失败：{error}"))?;
     app.restart();
 }
 
@@ -698,6 +701,19 @@ pub fn run() {
                 None,
             )) {
                 eprintln!("autostart plugin failed to initialize: {error}");
+            } else {
+                // Trust the OS as the source of truth: if the user disabled
+                // DeskMate in Task Manager, the in-app switch must say so
+                // instead of silently disagreeing with the system.
+                if let Ok(enabled) = app.autolaunch().is_enabled() {
+                    let state = app.state::<AppState>();
+                    if let Ok(mut settings) = state.settings.lock() {
+                        if settings.autostart_enabled != enabled {
+                            settings.autostart_enabled = enabled;
+                            let _ = state.settings_store.save(&settings);
+                        }
+                    }
+                }
             }
             if let Err(error) = register_shortcuts(app) {
                 eprintln!("global shortcuts failed to register: {error}");
@@ -1600,21 +1616,49 @@ async fn check_for_update(app: &tauri::AppHandle) -> Result<UpdateStatus, String
         .build()
         .map_err(|error| error.to_string())?;
     let update = updater.check().await.map_err(|error| error.to_string())?;
-    let status = UpdateStatus {
+    let version = update.as_ref().map(|item| item.version.clone());
+    let notes = update.as_ref().and_then(|item| item.body.clone());
+    let mut status = UpdateStatus {
         available: update.is_some(),
-        version: update.as_ref().map(|item| item.version.clone()),
-        notes: update.as_ref().and_then(|item| item.body.clone()),
+        downloaded: false,
+        version,
+        notes,
     };
     if let Some(update) = update {
-        let bytes = update
-            .download(|_, _| {}, || {})
-            .await
-            .map_err(|error| error.to_string())?;
-        *app.state::<AppState>()
+        // The periodic check and a manual click can both land here; staging
+        // the same version twice would re-download the full installer.
+        let already_staged = app
+            .state::<AppState>()
             .ready_update
             .lock()
-            .map_err(|_| "updater lock poisoned")? = Some(ReadyUpdate { update, bytes });
-        let _ = app.emit("update://ready", &status);
+            .ok()
+            .and_then(|ready| ready.as_ref().map(|item| item.update.version.clone()))
+            .is_some_and(|staged| staged == update.version);
+        if already_staged {
+            status.downloaded = true;
+        } else {
+            match update.download(|_, _| {}, || {}).await {
+                Ok(bytes) => {
+                    *app.state::<AppState>()
+                        .ready_update
+                        .lock()
+                        .map_err(|_| "updater lock poisoned")? =
+                        Some(ReadyUpdate { update, bytes });
+                    status.downloaded = true;
+                }
+                Err(error) => {
+                    // The check succeeded; report the download problem without
+                    // failing the whole check so the next retry can stage it.
+                    let _ = app.emit(
+                        "update://error",
+                        format!("新版本下载失败，稍后将自动重试：{error}"),
+                    );
+                }
+            }
+        }
+        if status.downloaded {
+            let _ = app.emit("update://ready", &status);
+        }
     }
     Ok(status)
 }

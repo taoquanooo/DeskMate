@@ -77,7 +77,12 @@ async fn run_pet_engine(app: &tauri::AppHandle, label: &str) {
             // the motion engine never fights the cursor mid-drag.
             set_window_flag(&state.dragging, label, false);
         }
-        let settings = state.settings.lock().expect("settings poisoned").clone();
+        // A poisoned settings lock must not kill the motion engine task:
+        // skipping one tick keeps the pet alive instead of freezing it forever.
+        let settings = match state.settings.lock() {
+            Ok(settings) => settings.clone(),
+            Err(_) => continue,
+        };
         let fullscreen = is_foreground_fullscreen(&window);
         state.fullscreen.store(fullscreen, Ordering::Relaxed);
         if fullscreen != last_fullscreen {

@@ -6,17 +6,17 @@ describe("settings recovery", () => {
     expect(mergeSettings({ schemaVersion: 99, pet: { speed: -1 } })).toEqual(DEFAULT_SETTINGS);
   });
 
-  it("clamps pet scale to 25% and 300%", () => {
+  it("clamps pet scale to 10% and 1000%", () => {
     const minimum = mergeSettings({
       schemaVersion: 1,
       pet: { scale: 0.01 },
     });
     const maximum = mergeSettings({
       schemaVersion: 1,
-      pet: { scale: 9 },
+      pet: { scale: 20 },
     });
-    expect(minimum.pet.scale).toBe(0.25);
-    expect(maximum.pet.scale).toBe(3);
+    expect(minimum.pet.scale).toBe(0.1);
+    expect(maximum.pet.scale).toBe(10);
   });
 
   it("keeps the existing movement speed limits", () => {

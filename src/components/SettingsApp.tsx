@@ -222,10 +222,7 @@ export function SettingsApp({
             onInstallUpdate={onInstallUpdate}
             onOpenProject={onOpenProject}
             onShareProject={onShareProject}
-            onAutostartChange={(enabled) => {
-              persist({ ...settings, autostartEnabled: enabled });
-              onAutostartChange?.(enabled);
-            }}
+            onAutostartChange={(enabled) => onAutostartChange?.(enabled)}
           />
         )}
       </section>

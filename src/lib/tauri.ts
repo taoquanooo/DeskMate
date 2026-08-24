@@ -18,6 +18,7 @@ export interface BubblePayload {
 
 export interface UpdateStatus {
   available: boolean;
+  downloaded?: boolean;
   version?: string;
   notes?: string;
 }

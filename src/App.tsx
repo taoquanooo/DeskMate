@@ -219,11 +219,30 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
     };
     try {
       const patched = await settingsPatch(next);
-      await autostartSet(choice.autostartEnabled);
       setSettings(patched);
     } catch (error) {
       setSettingsError(`初始化未完成：${String(error)}`);
+      return;
     }
+    // A failed autostart registration must not gate the whole onboarding:
+    // settings are already saved, so surface it as a recoverable banner.
+    try {
+      await autostartSet(choice.autostartEnabled);
+    } catch (error) {
+      setSettingsSaveError(`开机自启设置失败：${String(error)}`);
+    }
+  };
+
+  const persistSettings = (next: SettingsV1) => {
+    setSettings(next);
+    setSettingsSaveError(null);
+    void settingsPatch(next).then(
+      (sanitized) => setSettings(sanitized),
+      // A failed save must be visible: the in-memory UI already shows the
+      // new value, so silently swallowing the error would let the user
+      // believe their change reached the disk.
+      (error) => setSettingsSaveError(`保存设置失败：${String(error)}`),
+    );
   };
 
   if (forceOnboarding || !settings.onboardingComplete) return <Onboarding onFinish={finishOnboarding} />;
@@ -250,7 +269,16 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
     try {
       const status = await updaterCheck();
       if (status.available) {
-        setUpdateUi({ state: "ready", version: status.version, notes: status.notes });
+        if (status.downloaded) {
+          setUpdateUi({ state: "ready", version: status.version, notes: status.notes });
+        } else {
+          // The check itself worked; only the download failed. The periodic
+          // check will retry staging it.
+          setUpdateUi({
+            state: "error",
+            error: `发现新版本 v${status.version ?? ""}，但下载失败，稍后将自动重试`,
+          });
+        }
       } else {
         setUpdateUi({ state: "up-to-date" });
       }
@@ -270,15 +298,14 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
       initialSettings={settings}
       settingsSaveError={settingsSaveError}
       currentPet={currentPet}
-      onSettingsChange={(next) => {
-        setSettings(next);
-        setSettingsSaveError(null);
-        void settingsPatch(next).then(
-          (sanitized) => setSettings(sanitized),
-          // A failed save must be visible: the in-memory UI already shows the
-          // new value, so silently swallowing the error would let the user
-          // believe their change reached the disk.
-          (error) => setSettingsSaveError(`保存设置失败：${String(error)}`),
+      onSettingsChange={persistSettings}
+      onAutostartChange={(enabled) => {
+        persistSettings({ ...settings, autostartEnabled: enabled });
+        // The system registration can fail independently of the settings
+        // save (e.g. registry access denied); surface it instead of letting
+        // the switch silently disagree with the OS.
+        void autostartSet(enabled).catch((error) =>
+          setSettingsSaveError(`开机自启设置失败：${String(error)}`),
         );
       }}
       onRecall={() => void petRecall()}
@@ -325,7 +352,6 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
       onPetUninstall={(id, version) =>
         void petUninstall(id, version).catch((error) => setCatalogError(`删除失败：${String(error)}`))
       }
-      onAutostartChange={(enabled) => void autostartSet(enabled)}
       localPets={localPetScan.pets}
       localPetFolder={localPetScan.folderPath}
       localPetErrors={localPetScan.errors}

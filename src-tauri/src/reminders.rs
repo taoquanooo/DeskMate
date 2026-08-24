@@ -156,7 +156,12 @@ pub fn start(app: tauri::AppHandle, runtime: std::sync::Arc<ReminderRuntime>) {
         loop {
             tokio::time::sleep(Duration::from_secs(15)).await;
             let state = app.state::<AppState>();
-            let settings = state.settings.lock().expect("settings poisoned").clone();
+            // A poisoned settings lock must not kill the reminder loop: skip
+            // the tick so reminders survive instead of silently dying.
+            let settings = match state.settings.lock() {
+                Ok(settings) => settings.clone(),
+                Err(_) => continue,
+            };
             runtime.initialize(&settings.reminders);
             if runtime.reset_after_sleep(&settings.reminders) {
                 continue;
