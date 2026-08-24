@@ -707,7 +707,10 @@ pub fn run() {
                 // instead of silently disagreeing with the system.
                 if let Ok(enabled) = app.autolaunch().is_enabled() {
                     let state = app.state::<AppState>();
-                    if let Ok(mut settings) = state.settings.lock() {
+                    // Bind the lock result: as an inline `if let` scrutinee
+                    // it would be dropped after `state` and trip E0597.
+                    let lock = state.settings.lock();
+                    if let Ok(mut settings) = lock {
                         if settings.autostart_enabled != enabled {
                             settings.autostart_enabled = enabled;
                             let _ = state.settings_store.save(&settings);
