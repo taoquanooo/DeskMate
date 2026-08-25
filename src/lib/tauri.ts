@@ -116,8 +116,8 @@ export async function installedPets(): Promise<InstalledPet[]> {
   return invoke<InstalledPet[]>("installed_pets");
 }
 
-export async function petSelectionSet(pets: PetSelection[]): Promise<PetSelection[]> {
-  return invoke<PetSelection[]>("pet_selection_set", { pets });
+export async function petSelectionSet(pet: PetSelection): Promise<PetSelection> {
+  return invoke<PetSelection>("pet_selection_set", { pet });
 }
 
 export function currentWindowLabel(): string {

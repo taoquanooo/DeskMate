@@ -82,10 +82,10 @@ describe("PetWindow", () => {
     );
   });
 
-  it("renders at the per-pet size override instead of the global default", async () => {
+  it("renders at the saved global size", async () => {
     tauriMocks.settingsGet.mockResolvedValue({
       ...structuredClone(DEFAULT_SETTINGS),
-      petScales: { "yanghao@1.0.0": 2 },
+      pet: { ...DEFAULT_SETTINGS.pet, scale: 2 },
     });
 
     render(<PetWindow />);

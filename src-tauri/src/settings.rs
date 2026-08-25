@@ -12,14 +12,12 @@ pub struct SettingsV1 {
     pub onboarding_complete: bool,
     pub autostart_enabled: bool,
     pub selected_pet: SelectedPet,
+    /// Single-pet mode: the desktop shows exactly one pet. The list shape is
+    /// kept for settings-file compatibility with older releases that allowed
+    /// several pets; loading now truncates it to the first entry.
     #[serde(default)]
     pub selected_pets: Vec<SelectedPet>,
     pub pet: PetSettings,
-    /// Per-pet size overrides keyed by "id@version". A pet without an entry
-    /// falls back to the global `pet.scale`, so existing installs keep their
-    /// saved size until the user adjusts an individual pet.
-    #[serde(default)]
-    pub pet_scales: std::collections::HashMap<String, f64>,
     pub reminders: Vec<Reminder>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_pets_dir: Option<String>,
@@ -66,9 +64,6 @@ impl Default for SettingsV1 {
     }
 }
 
-/// Maximum number of pets shown on the desktop at the same time.
-pub const MAX_ACTIVE_PETS: usize = 4;
-
 impl SettingsV1 {
     pub fn sanitize(mut self) -> Self {
         if self.schema_version != 1 {
@@ -76,28 +71,22 @@ impl SettingsV1 {
         }
         self.pet.scale = self.pet.scale.clamp(0.1, 10.0);
         self.pet.speed = self.pet.speed.clamp(40.0, 140.0);
-        // Per-pet overrides follow the same limits as the global scale; drop
-        // entries that would render a window invisible or unmanageable.
-        self.pet_scales
-            .retain(|key, scale| !key.trim().is_empty() && scale.is_finite());
-        for scale in self.pet_scales.values_mut() {
-            *scale = scale.clamp(0.1, 10.0);
-        }
-        // Migrate the legacy single selection into the multi-pet list, drop
-        // duplicates and blank ids, and cap the number of simultaneous pets.
-        if self.selected_pets.is_empty() {
-            self.selected_pets = vec![self.selected_pet.clone()];
-        }
+        // Single-pet mode: keep the first valid entry of a legacy multi-pet
+        // list (the primary pet), falling back to the legacy single selection
+        // or the default pet.
         self.selected_pets
             .retain(|pet| !pet.id.trim().is_empty() && !pet.version.trim().is_empty());
-        let mut seen = std::collections::HashSet::new();
-        self.selected_pets
-            .retain(|pet| seen.insert((pet.id.clone(), pet.version.clone())));
-        self.selected_pets.truncate(MAX_ACTIVE_PETS);
+        self.selected_pets.truncate(1);
         if self.selected_pets.is_empty() {
-            self.selected_pets = vec![SelectedPet {
-                id: "yanghao".into(),
-                version: "1.0.0".into(),
+            let fallback_valid = !self.selected_pet.id.trim().is_empty()
+                && !self.selected_pet.version.trim().is_empty();
+            self.selected_pets = vec![if fallback_valid {
+                self.selected_pet.clone()
+            } else {
+                SelectedPet {
+                    id: "yanghao".into(),
+                    version: "1.0.0".into(),
+                }
             }];
         }
         self.selected_pet = self.selected_pets[0].clone();
@@ -336,25 +325,6 @@ mod tests {
     }
 
     #[test]
-    fn clamps_per_pet_scale_overrides_and_drops_invalid_entries() {
-        let directory = tempfile::tempdir().unwrap();
-        let store = SettingsStore::new(directory.path().join("settings.json"));
-        let mut value = store.load_value();
-        value["petScales"] = json!({
-            "yanghao@1.0.0": 2.5,
-            "lev-neon@1.0.0": 0.01,
-            "hwjin-black@1.0.0": 99.0,
-            "": 1.5
-        });
-        store.save_value(&value).unwrap();
-        let loaded = store.load();
-        assert_eq!(loaded.pet_scales.get("yanghao@1.0.0"), Some(&2.5));
-        assert_eq!(loaded.pet_scales.get("lev-neon@1.0.0"), Some(&0.1));
-        assert_eq!(loaded.pet_scales.get("hwjin-black@1.0.0"), Some(&10.0));
-        assert!(!loaded.pet_scales.contains_key(""));
-    }
-
-    #[test]
     fn migrates_legacy_single_selection_into_selected_pets() {
         let directory = tempfile::tempdir().unwrap();
         let store = SettingsStore::new(directory.path().join("settings.json"));
@@ -369,30 +339,21 @@ mod tests {
     }
 
     #[test]
-    fn dedupes_and_caps_selected_pets() {
+    fn truncates_a_legacy_multi_pet_list_to_the_primary_pet() {
         let directory = tempfile::tempdir().unwrap();
         let store = SettingsStore::new(directory.path().join("settings.json"));
         let mut value = store.load_value();
         value["selectedPets"] = json!([
-            { "id": "yanghao", "version": "1.0.0" },
             { "id": "lev-neon", "version": "1.0.0" },
             { "id": "yanghao", "version": "1.0.0" },
-            { "id": "", "version": "1.0.0" },
-            { "id": "a", "version": "1.0.0" },
-            { "id": "b", "version": "1.0.0" },
-            { "id": "c", "version": "1.0.0" }
+            { "id": "", "version": "1.0.0" }
         ]);
         store.save_value(&value).unwrap();
         let loaded = store.load();
-        assert_eq!(
-            loaded
-                .selected_pets
-                .iter()
-                .map(|pet| pet.id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["yanghao", "lev-neon", "a", "b"]
-        );
-        assert_eq!(loaded.selected_pet.id, "yanghao");
+        // Single-pet mode: only the first valid entry survives the upgrade.
+        assert_eq!(loaded.selected_pets.len(), 1);
+        assert_eq!(loaded.selected_pets[0].id, "lev-neon");
+        assert_eq!(loaded.selected_pet.id, "lev-neon");
     }
 
     #[test]

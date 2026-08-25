@@ -24,26 +24,7 @@ describe("settings recovery", () => {
     expect(settings.pet.speed).toBe(40);
   });
 
-  it("sanitizes per-pet scale overrides and tolerates their absence", () => {
-    expect(mergeSettings({ schemaVersion: 1 }).petScales).toEqual({});
-    const settings = mergeSettings({
-      schemaVersion: 1,
-      petScales: {
-        "yanghao@1.0.0": 2.5,
-        "lev-neon@1.0.0": 0.01,
-        "hwjin-black@1.0.0": 99,
-        "": 1.5,
-        "broken@1.0.0": "big",
-      },
-    });
-    expect(settings.petScales).toEqual({
-      "yanghao@1.0.0": 2.5,
-      "lev-neon@1.0.0": 0.1,
-      "hwjin-black@1.0.0": 10,
-    });
-  });
-
-  it("migrates the legacy single pet selection into the multi-pet list", () => {
+  it("migrates the legacy single pet selection into the selection list", () => {
     const settings = mergeSettings({
       schemaVersion: 1,
       selectedPet: { id: "lev-neon", version: "1.0.0" },
@@ -52,26 +33,17 @@ describe("settings recovery", () => {
     expect(settings.selectedPet).toEqual({ id: "lev-neon", version: "1.0.0" });
   });
 
-  it("dedupes, caps, and primary-syncs the multi-pet list", () => {
+  it("truncates a legacy multi-pet list to the primary pet", () => {
     const settings = mergeSettings({
       schemaVersion: 1,
       selectedPets: [
-        { id: "yanghao", version: "1.0.0" },
         { id: "lev-neon", version: "1.0.0" },
         { id: "yanghao", version: "1.0.0" },
         { id: "", version: "1.0.0" },
-        { id: "a", version: "1.0.0" },
-        { id: "b", version: "1.0.0" },
-        { id: "c", version: "1.0.0" },
       ],
     });
-    expect(settings.selectedPets).toEqual([
-      { id: "yanghao", version: "1.0.0" },
-      { id: "lev-neon", version: "1.0.0" },
-      { id: "a", version: "1.0.0" },
-      { id: "b", version: "1.0.0" },
-    ]);
-    expect(settings.selectedPet).toEqual({ id: "yanghao", version: "1.0.0" });
+    expect(settings.selectedPets).toEqual([{ id: "lev-neon", version: "1.0.0" }]);
+    expect(settings.selectedPet).toEqual({ id: "lev-neon", version: "1.0.0" });
   });
 
   it("falls back to the legacy selection when the list is unusable", () => {

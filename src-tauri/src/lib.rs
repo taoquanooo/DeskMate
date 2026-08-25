@@ -8,7 +8,7 @@ mod settings;
 use futures_util::StreamExt;
 use pets::{LocalPetScanV1, PetCatalogEntryV1, PetCatalogV1};
 use serde::Serialize;
-use settings::{SelectedPet, SettingsStore, SettingsV1, MAX_ACTIVE_PETS};
+use settings::{SelectedPet, SettingsStore, SettingsV1};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -97,17 +97,10 @@ pub(crate) fn any_window_flag(flags: &Mutex<HashMap<String, bool>>) -> bool {
         .unwrap_or(false)
 }
 
-/// Window label for the pet slot at `index` (the first pet uses the static
-/// "pet" window declared in tauri.conf.json).
-fn pet_window_label(index: usize) -> String {
-    if index == 0 {
-        "pet".to_string()
-    } else {
-        format!("pet-{}", index + 1)
-    }
-}
-
-/// Inverse of `pet_window_label`; returns None for non-pet windows.
+/// Parse a pet-window label; returns None for non-pet windows. Slots beyond
+/// the first ("pet-2", "pet-3", ...) only exist in settings left over from
+/// earlier multi-pet releases and are closed during window sync, but they must
+/// still be recognized as pet windows while shutting down.
 fn pet_window_index(label: &str) -> Option<usize> {
     if label == "pet" {
         return Some(0);
@@ -116,21 +109,6 @@ fn pet_window_index(label: &str) -> Option<usize> {
     // "pet-2" is slot 1, "pet-3" is slot 2, ... ("pet-1" is not a valid slot:
     // the first pet always uses the static "pet" window).
     number.checked_sub(1).filter(|index| *index >= 1)
-}
-
-/// Effective size scale for the pet in selection slot `index`: the per-pet
-/// override ("id@version") when present, otherwise the global `pet.scale`.
-fn pet_scale_for(settings: &SettingsV1, index: usize) -> f64 {
-    settings
-        .selected_pets
-        .get(index)
-        .and_then(|pet| {
-            settings
-                .pet_scales
-                .get(&format!("{}@{}", pet.id, pet.version))
-        })
-        .copied()
-        .unwrap_or(settings.pet.scale)
 }
 
 /// Tauri creates the config-declared windows before running the `setup()`
@@ -408,48 +386,29 @@ fn scan_installed_pets(pets_root: &Path) -> Result<Vec<InstalledPetV1>, String> 
 }
 
 #[tauri::command]
-fn pet_selection_set(
-    app: tauri::AppHandle,
-    pets: Vec<SelectedPet>,
-) -> Result<Vec<SelectedPet>, String> {
-    let mut deduped: Vec<SelectedPet> = Vec::new();
-    for pet in pets {
-        if pet.id.trim().is_empty() || pet.version.trim().is_empty() {
-            return Err("桌宠选择包含无效的 id 或版本".into());
-        }
-        if deduped
-            .iter()
-            .any(|existing| existing.id == pet.id && existing.version == pet.version)
-        {
-            continue;
-        }
-        // Resolve every pet before committing so a missing package can't
-        // leave the desktop with a half-applied selection.
-        resolve_pet_payload(&app, &pet.id, &pet.version)
-            .map_err(|error| format!("{}@{}：{error}", pet.id, pet.version))?;
-        deduped.push(pet);
+fn pet_selection_set(app: tauri::AppHandle, pet: SelectedPet) -> Result<SelectedPet, String> {
+    if pet.id.trim().is_empty() || pet.version.trim().is_empty() {
+        return Err("桌宠选择包含无效的 id 或版本".into());
     }
-    if deduped.is_empty() {
-        return Err("至少保留一只桌宠".into());
-    }
-    if deduped.len() > MAX_ACTIVE_PETS {
-        return Err(format!("最多同时显示 {MAX_ACTIVE_PETS} 只桌宠"));
-    }
+    // Resolve before committing so a missing package can't leave the desktop
+    // with a half-applied selection.
+    resolve_pet_payload(&app, &pet.id, &pet.version)
+        .map_err(|error| format!("{}@{}：{error}", pet.id, pet.version))?;
     {
         let state = app.state::<AppState>();
         let mut settings = state
             .settings
             .lock()
             .map_err(|_| "settings lock poisoned")?;
-        settings.selected_pets = deduped.clone();
-        settings.selected_pet = deduped[0].clone();
+        settings.selected_pets = vec![pet.clone()];
+        settings.selected_pet = pet.clone();
         state
             .settings_store
             .save(&settings)
             .map_err(|error| error.to_string())?;
     }
     sync_pet_windows(&app)?;
-    Ok(deduped)
+    Ok(pet)
 }
 
 #[tauri::command]
@@ -538,7 +497,7 @@ async fn custom_pets_dir_pick(app: tauri::AppHandle) -> Result<Option<String>, S
 }
 
 #[tauri::command]
-async fn pet_current(app: tauri::AppHandle, window: tauri::Window) -> PetChangedPayload {
+async fn pet_current(app: tauri::AppHandle) -> PetChangedPayload {
     let fallback = PetChangedPayload {
         id: "yanghao".into(),
         version: "1.0.0".into(),
@@ -556,13 +515,11 @@ async fn pet_current(app: tauri::AppHandle, window: tauri::Window) -> PetChanged
             return fallback;
         };
         let settings = state.settings.lock().expect("settings poisoned").clone();
-        // Each pet window renders its own slot of the selection; non-pet
-        // windows (e.g. the settings preview) show the primary pet.
-        let index = pet_window_index(window.label()).unwrap_or(0);
+        // Single-pet mode: every caller (the pet window and the settings
+        // preview) renders the same selection.
         settings
             .selected_pets
-            .get(index)
-            .or_else(|| settings.selected_pets.first())
+            .first()
             .cloned()
             .unwrap_or(settings.selected_pet)
     };
@@ -882,10 +839,7 @@ mod tests {
     }
 
     #[test]
-    fn pet_window_labels_round_trip() {
-        assert_eq!(super::pet_window_label(0), "pet");
-        assert_eq!(super::pet_window_label(1), "pet-2");
-        assert_eq!(super::pet_window_label(3), "pet-4");
+    fn recognizes_pet_window_labels_including_legacy_multi_pet_slots() {
         assert_eq!(super::pet_window_index("pet"), Some(0));
         assert_eq!(super::pet_window_index("pet-2"), Some(1));
         assert_eq!(super::pet_window_index("pet-4"), Some(3));
@@ -895,13 +849,11 @@ mod tests {
 }
 
 fn apply_window_settings(app: &tauri::AppHandle, settings: &SettingsV1) {
+    let scale = settings.pet.scale;
     for (label, pet) in app.webview_windows() {
-        let Some(index) = pet_window_index(&label) else {
+        if pet_window_index(&label).is_none() {
             continue;
-        };
-        // Each pet can have its own size; windows follow the selection slot
-        // they render.
-        let scale = pet_scale_for(settings, index);
+        }
         let _ = pet.set_always_on_top(settings.pet.always_on_top);
         let _ = pet.set_ignore_cursor_events(settings.pet.click_through);
         let reposition = pet
@@ -943,8 +895,9 @@ fn apply_window_settings(app: &tauri::AppHandle, settings: &SettingsV1) {
                 position.y.round() as i32,
             ));
         }
-        // Per-window emit: with several pets on the desktop each window must
-        // receive its own scale, not the global default.
+        // Targeted emit so each live pet window (there is exactly one in
+        // single-pet mode, but legacy surplus windows may still be closing)
+        // picks up the size change.
         let _ = app.emit_to(label.as_str(), "settings://scale", scale);
     }
 }
@@ -1478,9 +1431,9 @@ fn install_downloaded_package(
     Ok(())
 }
 
-/// Ensure one live window exists per selected pet: close surplus pet windows,
-/// create missing ones (each with its own motion engine), apply window-level
-/// settings, and push every window the pet it should render.
+/// Single-pet mode: keep exactly one pet window (the static "pet" window),
+/// close any surplus pet windows left over from earlier multi-pet releases,
+/// apply window-level settings, and push the window the pet it should render.
 fn sync_pet_windows(app: &tauri::AppHandle) -> Result<(), String> {
     let settings = app
         .state::<AppState>()
@@ -1488,32 +1441,23 @@ fn sync_pet_windows(app: &tauri::AppHandle) -> Result<(), String> {
         .lock()
         .map_err(|_| "settings lock poisoned")?
         .clone();
-    let desired: Vec<String> = (0..settings.selected_pets.len())
-        .map(pet_window_label)
-        .collect();
     for (label, window) in app.webview_windows() {
-        if pet_window_index(&label).is_some() && !desired.contains(&label) {
+        if pet_window_index(&label).is_some() && label != "pet" {
             let _ = window.close();
         }
     }
-    for (index, label) in desired.iter().enumerate() {
-        if app.get_webview_window(label).is_none() {
-            create_pet_window(app, label, &settings, index)?;
-        }
-        runtime::ensure_motion_engine(app, label);
+    let label = "pet";
+    if app.get_webview_window(label).is_none() {
+        create_pet_window(app, label, &settings)?;
     }
+    runtime::ensure_motion_engine(app, label);
     apply_window_settings(app, &settings);
-    for (index, selected) in settings.selected_pets.iter().enumerate() {
+    if let Some(selected) = settings.selected_pets.first() {
         if let Ok(payload) = resolve_pet_payload(app, &selected.id, &selected.version) {
-            let _ = app.emit_to(pet_window_label(index), "pet://changed", payload);
-        }
-    }
-    // The settings window listens for `pet://changed` to refresh its preview,
-    // but the per-window `emit_to` payloads above never reach it. Send the
-    // primary pet explicitly so the preview tracks switches and multi-pet
-    // changes.
-    if let Some(primary) = settings.selected_pets.first() {
-        if let Ok(payload) = resolve_pet_payload(app, &primary.id, &primary.version) {
+            let _ = app.emit_to(label, "pet://changed", payload.clone());
+            // The settings window listens for `pet://changed` to refresh its
+            // preview; the pet-window emit above never reaches it, so send it
+            // the same payload explicitly.
             let _ = app.emit_to("settings", "pet://changed", payload);
         }
     }
@@ -1524,9 +1468,8 @@ fn create_pet_window(
     app: &tauri::AppHandle,
     label: &str,
     settings: &SettingsV1,
-    index: usize,
 ) -> Result<tauri::WebviewWindow, String> {
-    let scale = pet_scale_for(settings, index);
+    let scale = settings.pet.scale;
     let width = 192.0 * scale + 6.0;
     let height = 208.0 * scale + 6.0;
     let window = tauri::WebviewWindowBuilder::new(
@@ -1552,16 +1495,15 @@ fn create_pet_window(
         let _ = window.show();
         return Ok(window);
     }
-    // Stagger new pets along the bottom of the cursor monitor so they don't
-    // stack on top of each other. The work-area rect is in physical pixels,
-    // so convert the logical window size with the monitor's DPI scale.
+    // Anchor the pet at the bottom center of the cursor monitor. The work-area
+    // rect is in physical pixels, so convert the logical window size with the
+    // monitor's DPI scale.
     if let Some((area, scale)) = runtime::cursor_monitor_info() {
         let physical_width = (width * scale).round() as i32;
         let physical_height = (height * scale).round() as i32;
         let gap = (48.0 * scale).round() as i32;
-        let offset = index as i32 * (physical_width + gap);
         let center = i64::from(area.left) + i64::from(area.right - area.left) / 2;
-        let x = center + i64::from(offset) - i64::from(physical_width / 2);
+        let x = center - i64::from(physical_width / 2);
         let y = i64::from(area.bottom) - i64::from(physical_height) - i64::from(gap);
         // Guard the clamp bounds: a window wider than the work area would
         // otherwise make max < min and panic.

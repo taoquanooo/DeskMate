@@ -2,7 +2,6 @@ import { createDefaultReminders, type Reminder } from "./reminders";
 
 export const MIN_PET_SCALE = 0.1;
 export const MAX_PET_SCALE = 10;
-export const MAX_ACTIVE_PETS = 4;
 
 export interface PetSelection {
   id: string;
@@ -14,6 +13,11 @@ export interface SettingsV1 {
   onboardingComplete: boolean;
   autostartEnabled: boolean;
   selectedPet: PetSelection;
+  /**
+   * Single-pet mode: the desktop shows exactly one pet. The list shape is kept
+   * for settings-file compatibility with older releases that allowed several
+   * pets; loading now truncates it to the first entry.
+   */
   selectedPets: PetSelection[];
   pet: {
     scale: number;
@@ -23,17 +27,8 @@ export interface SettingsV1 {
     hideInFullscreen: boolean;
     clickThrough: boolean;
   };
-  /**
-   * Per-pet size overrides keyed by "id@version". Pets without an entry fall
-   * back to the global `pet.scale`.
-   */
-  petScales: Record<string, number>;
   reminders: Reminder[];
   customPetsDir?: string | null;
-}
-
-export function petScaleKey(selection: PetSelection): string {
-  return `${selection.id}@${selection.version}`;
 }
 
 export const DEFAULT_SETTINGS: SettingsV1 = {
@@ -51,7 +46,6 @@ export const DEFAULT_SETTINGS: SettingsV1 = {
     clickThrough: false,
   },
   reminders: createDefaultReminders(),
-  petScales: {},
   customPetsDir: null,
 };
 
@@ -84,7 +78,6 @@ export function mergeSettings(value: unknown): SettingsV1 {
     reminders: Array.isArray(value.reminders)
       ? sanitizeReminders(value.reminders, defaults.reminders)
       : defaults.reminders,
-    petScales: sanitizePetScales(value.petScales),
     customPetsDir:
       typeof value.customPetsDir === "string" && value.customPetsDir.trim() !== ""
         ? value.customPetsDir
@@ -92,29 +85,16 @@ export function mergeSettings(value: unknown): SettingsV1 {
   };
 }
 
-function sanitizePetScales(value: unknown): Record<string, number> {
-  if (!isRecord(value)) return {};
-  const scales: Record<string, number> = {};
-  for (const [key, scale] of Object.entries(value)) {
-    if (key.trim() === "" || typeof scale !== "number" || !Number.isFinite(scale)) continue;
-    scales[key] = clamp(scale, MIN_PET_SCALE, MAX_PET_SCALE);
-  }
-  return scales;
-}
-
 function sanitizeSelectedPets(value: unknown, fallback: PetSelection[]): PetSelection[] {
-  const seen = new Set<string>();
   const valid: PetSelection[] = [];
   if (Array.isArray(value)) {
     for (const item of value) {
       if (!isRecord(item)) continue;
       if (typeof item.id !== "string" || item.id.trim() === "") continue;
       if (typeof item.version !== "string" || item.version.trim() === "") continue;
-      const key = `${item.id}@${item.version}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
       valid.push({ id: item.id, version: item.version });
-      if (valid.length >= MAX_ACTIVE_PETS) break;
+      // Single-pet mode: only the first valid entry survives.
+      break;
     }
   }
   return valid.length > 0 ? valid : fallback;

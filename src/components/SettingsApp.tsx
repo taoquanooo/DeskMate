@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import type { Reminder, ReminderSchedule } from "../domain/reminders";
 import type { LocalPetV1, PetCatalogV1 } from "../domain/pets";
-import { MAX_ACTIVE_PETS, petScaleKey, type PetSelection, type SettingsV1 } from "../domain/settings";
+import type { PetSelection, SettingsV1 } from "../domain/settings";
 import {
   BUILT_IN_PETS,
   PETDEX_URL,
@@ -55,7 +55,7 @@ export interface SettingsAppProps {
   installProgress?: Record<string, InstallProgress>;
   onCatalogRefresh?: () => void;
   onPetInstall?: (id: string, version: string) => void;
-  onPetToggle?: (id: string, version: string, add: boolean) => void;
+  onPetToggle?: (id: string, version: string) => void;
   onPetUninstall?: (id: string, version: string) => void;
   onAutostartChange?: (enabled: boolean) => void;
   localPets?: LocalPetV1[];
@@ -124,10 +124,6 @@ export function SettingsApp({
     persist({ ...settings, pet: { ...settings.pet, ...patch } });
   };
 
-  const setPetScale = (key: string, scale: number) => {
-    persist({ ...settings, petScales: { ...settings.petScales, [key]: scale } });
-  };
-
   const patchReminder = (id: string, patch: Partial<Reminder>) => {
     persist({
       ...settings,
@@ -183,7 +179,6 @@ export function SettingsApp({
           <PetSettings
             settings={settings}
             patchPet={patchPet}
-            onPetScaleChange={setPetScale}
             onRecall={onRecall}
             currentPet={currentPet}
             localPets={localPets}
@@ -250,7 +245,6 @@ function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
 function PetSettings({
   settings,
   patchPet,
-  onPetScaleChange,
   onRecall,
   currentPet,
   localPets,
@@ -258,7 +252,6 @@ function PetSettings({
 }: {
   settings: SettingsV1;
   patchPet: (patch: Partial<SettingsV1["pet"]>) => void;
-  onPetScaleChange: (key: string, scale: number) => void;
   onRecall?: () => void;
   currentPet?: PetChangedPayload | null;
   localPets: LocalPetV1[];
@@ -270,13 +263,13 @@ function PetSettings({
     spriteVersionNumber: 2,
     spritesheetPath: null,
   };
-  const petDisplayName = (selection: PetSelection) =>
-    BUILT_IN_PETS.find((pet) => pet.id === selection.id && pet.version === selection.version)?.displayName ??
-    localPets.find((pet) => pet.id === selection.id)?.displayName ??
-    catalog?.pets.find((pet) => pet.id === selection.id && pet.version === selection.version)?.displayName ??
-    selection.id;
-  const previewName = petDisplayName(previewPet);
-  const multiplePets = settings.selectedPets.length > 1;
+  const previewName =
+    BUILT_IN_PETS.find((pet) => pet.id === previewPet.id && pet.version === previewPet.version)
+      ?.displayName ??
+    localPets.find((pet) => pet.id === previewPet.id)?.displayName ??
+    catalog?.pets.find((pet) => pet.id === previewPet.id && pet.version === previewPet.version)
+      ?.displayName ??
+    previewPet.id;
 
   return (
     <>
@@ -285,11 +278,7 @@ function PetSettings({
         <section className="pet-preview" aria-label="桌宠预览">
           <div className="preview-bubble">
             <strong>今天也一起加油吧！</strong>
-            <span>
-              {settings.selectedPets.length > 1
-                ? `桌面上同时显示 ${settings.selectedPets.length} 只桌宠，这里预览第一只`
-                : "正在展示当前桌宠的动画"}
-            </span>
+            <span>正在展示当前桌宠的动画</span>
           </div>
           <PetPreview pet={previewPet} displayName={previewName} />
           <button className="button button-secondary" onClick={onRecall}>
@@ -298,19 +287,7 @@ function PetSettings({
           </button>
         </section>
         <section className="setting-list" aria-label="桌宠行为设置">
-          {settings.selectedPets.map((selection) => {
-            // One size control per pet on the desktop: a per-pet override when
-            // set, otherwise the shared default size.
-            const key = petScaleKey(selection);
-            return (
-              <PetSizeSetting
-                key={key}
-                name={multiplePets ? petDisplayName(selection) : undefined}
-                scale={settings.petScales[key] ?? settings.pet.scale}
-                onChange={(scale) => onPetScaleChange(key, scale)}
-              />
-            );
-          })}
+          <PetSizeSetting scale={settings.pet.scale} onChange={(scale) => patchPet({ scale })} />
           <RangeSetting
             label="移动速度"
             value={settings.pet.speed}
@@ -477,7 +454,7 @@ function PetLibrary({
   selectedPets: PetSelection[];
   onRefresh?: () => void;
   onInstall?: (id: string, version: string) => void;
-  onToggle?: (id: string, version: string, add: boolean) => void;
+  onToggle?: (id: string, version: string) => void;
   onUninstall?: (id: string, version: string) => void;
   installedPets?: InstalledPet[];
   installProgress?: Record<string, InstallProgress>;
@@ -493,38 +470,29 @@ function PetLibrary({
   const pets = catalog?.pets ?? [];
   const isSelected = (id: string, version: string) =>
     selectedPets.some((pet) => pet.id === id && pet.version === version);
-  const selectionFull = selectedPets.length >= MAX_ACTIVE_PETS;
+  // Single-pet mode: tapping a non-active pet switches the desktop to it; the
+  // active pet has nothing to toggle.
   const toggleButton = (id: string, version: string) => {
     if (isSelected(id, version)) {
-      const onlyOne = selectedPets.length <= 1;
       return (
-        <button
-          className="button button-secondary pet-toggle active"
-          title={onlyOne ? "桌面至少保留一只桌宠" : "从桌面移除"}
-          disabled={onlyOne}
-          onClick={() => onToggle?.(id, version, false)}
-        >
-          使用中 · 移除
+        <button className="button button-secondary pet-toggle active" title="当前使用的桌宠" disabled>
+          使用中
         </button>
       );
     }
     return (
       <button
         className="button button-primary"
-        title={selectionFull ? `最多同时显示 ${MAX_ACTIVE_PETS} 只桌宠` : "添加到桌面"}
-        disabled={selectionFull}
-        onClick={() => onToggle?.(id, version, true)}
+        title="切换为当前桌宠"
+        onClick={() => onToggle?.(id, version)}
       >
-        添加到桌面
+        使用
       </button>
     );
   };
   return (
     <>
-      <PageHeader
-        title="宠物库"
-        subtitle={`选择官方宠物，或从本机文件夹导入自己的伙伴。可同时显示最多 ${MAX_ACTIVE_PETS} 只桌宠（当前 ${selectedPets.length} 只）。`}
-      />
+      <PageHeader title="宠物库" subtitle="选择官方宠物，或从本机文件夹导入自己的伙伴。" />
       <aside className="pet-gallery-recommendation" aria-label="推荐宠物库">
         <div>
           <strong>推荐：Codex Pet Gallery</strong>

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { gazeAngleFromVector, type AnimationState } from "../domain/animation";
-import { petScaleKey, type SettingsV1 } from "../domain/settings";
 import {
   emitWindowFlag,
   listenEvent,
@@ -53,23 +52,10 @@ export function PetWindow() {
   const dragActive = useRef(false);
   const dragMoved = useRef(false);
   const pointerStart = useRef<{ x: number; y: number } | undefined>(undefined);
-  // This window's pet identity and the latest settings snapshot; the rendered
-  // scale is recomputed whenever either one changes so each pet window can
-  // honor its own size override.
-  const petKey = useRef<string | null>(null);
-  const settingsSnapshot = useRef<SettingsV1 | null>(null);
   const resumeAnimation = useRef<{
     state: AnimationState;
     directionDegrees?: number;
   }>({ state: "idle" });
-
-  const applyStoredScale = () => {
-    const settings = settingsSnapshot.current;
-    if (!settings) return;
-    const key = petKey.current;
-    const override = key ? settings.petScales[key] : undefined;
-    setScale(typeof override === "number" ? override : settings.pet.scale);
-  };
 
   useEffect(() => {
     let frame = 0;
@@ -96,20 +82,15 @@ export function PetWindow() {
       });
     };
     void settingsGet()
-      .then((settings) => {
-        settingsSnapshot.current = settings;
-        applyStoredScale();
-      })
+      .then((settings) => setScale(settings.pet.scale))
       .catch(() => undefined);
     void petCurrent()
-      .then((pet) => {
-        petKey.current = petScaleKey(pet);
+      .then((pet) =>
         setPetAppearance({
           spritesheetUrl: petAssetUrl(pet.spritesheetPath, pet.id),
           spriteVersionNumber: pet.spriteVersionNumber,
-        });
-        applyStoredScale();
-      })
+        }),
+      )
       .catch(() => undefined);
     track(
       listenEvent<RuntimeAnimationPayload>("runtime://animation", (payload) => {
@@ -154,19 +135,14 @@ export function PetWindow() {
       }),
     );
     track(
-      listenEvent<PetChangedPayload>("pet://changed", (payload) => {
-        // A switch changes which pet this window renders; its size override
-        // changes with it.
-        petKey.current = petScaleKey(payload);
+      listenEvent<PetChangedPayload>("pet://changed", (payload) =>
         setPetAppearance({
           spritesheetUrl: petAssetUrl(payload.spritesheetPath, payload.id),
           spriteVersionNumber: payload.spriteVersionNumber,
-        });
-        applyStoredScale();
-      }),
+        }),
+      ),
     );
-    // Targeted per-window emit from the backend: the value is already this
-    // pet's effective scale (override or global default).
+    // Targeted emit from the backend carrying the effective global scale.
     track(listenEvent<number>("settings://scale", (value) => setScale(value)));
     return () => {
       cancelled = true;

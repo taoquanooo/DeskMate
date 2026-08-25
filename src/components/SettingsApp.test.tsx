@@ -30,45 +30,16 @@ describe("SettingsApp", () => {
     expect(preview).toHaveStyle({ width: "192px", height: "208px" });
   });
 
-  it("offers one size control per pet when several pets share the desktop", () => {
-    const onSettingsChange = vi.fn();
-    const multiPet: typeof DEFAULT_SETTINGS = {
-      ...structuredClone(DEFAULT_SETTINGS),
-      selectedPet: { id: "yanghao", version: "1.0.0" },
-      selectedPets: [
-        { id: "yanghao", version: "1.0.0" },
-        { id: "lev-neon", version: "1.0.0" },
-      ],
-      petScales: { "lev-neon@1.0.0": 2 },
-    };
-    render(<SettingsApp initialSettings={multiPet} onSettingsChange={onSettingsChange} />);
-
-    const defaultPetSlider = screen.getByRole("slider", { name: "默认伙伴大小" });
-    const levNeonSlider = screen.getByRole("slider", { name: "Lev-neon大小" });
-    // The per-pet override wins for Lev-neon; the default pet falls back to
-    // the shared size.
-    expect(defaultPetSlider).toHaveValue("100");
-    expect(levNeonSlider).toHaveValue("200");
-
-    fireEvent.change(defaultPetSlider, { target: { value: "300" } });
-    expect(onSettingsChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        petScales: expect.objectContaining({ "yanghao@1.0.0": 3, "lev-neon@1.0.0": 2 }),
-      }),
-    );
-  });
-
-  it("toggles pets onto and off the desktop from the library", () => {
+  it("switches the desktop pet from the library in single-pet mode", () => {
     const onPetToggle = vi.fn();
     render(<SettingsApp initialSettings={DEFAULT_SETTINGS} onPetToggle={onPetToggle} />);
 
     fireEvent.click(screen.getByRole("button", { name: "宠物库" }));
-    // 默认伙伴已在桌面上：只能移除，且只剩一只时不可移除
-    const selectedToggle = screen.getAllByRole("button", { name: "使用中 · 移除" })[0]!;
-    expect(selectedToggle).toBeDisabled();
-    // Lev-neon 不在桌面上：可以添加
-    fireEvent.click(screen.getAllByRole("button", { name: "添加到桌面" })[0]!);
-    expect(onPetToggle).toHaveBeenCalledWith("lev-neon", "1.0.0", true);
+    // 默认伙伴正在使用：按钮为禁用状态
+    expect(screen.getAllByRole("button", { name: "使用中" })[0]!).toBeDisabled();
+    // Lev-neon 未使用：点击即切换
+    fireEvent.click(screen.getAllByRole("button", { name: "使用" })[0]!);
+    expect(onPetToggle).toHaveBeenCalledWith("lev-neon", "1.0.0");
   });
 
   it("opens the reminder editor from the navigation", () => {

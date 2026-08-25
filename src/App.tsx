@@ -265,9 +265,8 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
     // Pet selection is managed by the dedicated `pet_selection_set` command
     // (which also syncs windows). If we send `selectedPet`/`selectedPets` as
     // part of a generic settings patch, the in-flight request can carry a
-    // stale list and overwrite a concurrent pet switch, making multi-pet and
-    // switching appear broken. Strip them from the patch so the backend keeps
-    // whatever is currently in its state.
+    // stale selection and overwrite a concurrent pet switch. Strip them from
+    // the patch so the backend keeps whatever is currently in its state.
     const { selectedPet: _omitPet, selectedPets: _omitPets, ...patch } = next;
     // Slider drags fire many patches in a row and their responses can arrive
     // out of order; adopting an older response makes the UI snap back
@@ -383,17 +382,12 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
           },
         );
       }}
-      onPetToggle={(id, version, add) => {
-        const current = settings.selectedPets;
-        const next = add
-          ? [...current, { id, version }]
-          : current.filter((pet) => !(pet.id === id && pet.version === version));
-        void petSelectionSet(next).then(
-          (pets) =>
+      onPetToggle={(id, version) => {
+        // Single-pet mode: switching replaces the desktop pet outright.
+        void petSelectionSet({ id, version }).then(
+          (pet) =>
             setSettings((current) =>
-              current
-                ? { ...current, selectedPets: pets, selectedPet: pets[0] ?? current.selectedPet }
-                : current,
+              current ? { ...current, selectedPet: pet, selectedPets: [pet] } : current,
             ),
           (error) => setCatalogError(`切换宠物失败：${String(error)}`),
         );
