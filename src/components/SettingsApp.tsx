@@ -15,6 +15,7 @@ import {
   Share2,
   Trash2,
 } from "lucide-react";
+import pkg from "../../package.json" with { type: "json" };
 import type { Reminder, ReminderSchedule } from "../domain/reminders";
 import type { LocalPetV1, PetCatalogV1 } from "../domain/pets";
 import type { PetSelection, SettingsV1 } from "../domain/settings";
@@ -156,7 +157,7 @@ export function SettingsApp({
           <span className="status-dot" />
           <span className="sidebar-footer-info">
             运行中
-            <small>DeskMate v0.1.4</small>
+            <small>DeskMate v{pkg.version}</small>
           </span>
           <button
             type="button"
