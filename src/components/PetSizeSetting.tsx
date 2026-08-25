@@ -11,11 +11,18 @@ const SLIDER_STEP = 10;
 export interface PetSizeSettingProps {
   scale: number;
   onChange: (scale: number) => void;
+  /**
+   * Pet display name shown next to the label when several pets share the
+   * desktop, so each size control is unambiguous.
+   */
+  name?: string;
 }
 
-export function PetSizeSetting({ scale, onChange }: PetSizeSettingProps) {
+export function PetSizeSetting({ scale, onChange, name }: PetSizeSettingProps) {
   const percentage = Math.round(scale * 100);
   const [draft, setDraft] = useState(String(percentage));
+  const sliderLabel = name ? `${name}大小` : "大小";
+  const inputLabel = name ? `${name}大小百分比` : "桌宠大小百分比";
 
   useEffect(() => setDraft(String(percentage)), [percentage]);
 
@@ -42,12 +49,12 @@ export function PetSizeSetting({ scale, onChange }: PetSizeSettingProps) {
   return (
     <label className="setting-row pet-size-row">
       <span>
-        <strong>大小</strong>
+        <strong>{name ? `大小 · ${name}` : "大小"}</strong>
         <small>{percentage}%</small>
       </span>
       <span className="pet-size-controls">
         <input
-          aria-label="大小"
+          aria-label={sliderLabel}
           type="range"
           min={MIN_PERCENT}
           max={MAX_PERCENT}
@@ -58,7 +65,7 @@ export function PetSizeSetting({ scale, onChange }: PetSizeSettingProps) {
         />
         <span className="percent-input">
           <input
-            aria-label="桌宠大小百分比"
+            aria-label={inputLabel}
             type="number"
             min={MIN_PERCENT}
             max={MAX_PERCENT}

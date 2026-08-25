@@ -24,6 +24,25 @@ describe("settings recovery", () => {
     expect(settings.pet.speed).toBe(40);
   });
 
+  it("sanitizes per-pet scale overrides and tolerates their absence", () => {
+    expect(mergeSettings({ schemaVersion: 1 }).petScales).toEqual({});
+    const settings = mergeSettings({
+      schemaVersion: 1,
+      petScales: {
+        "yanghao@1.0.0": 2.5,
+        "lev-neon@1.0.0": 0.01,
+        "hwjin-black@1.0.0": 99,
+        "": 1.5,
+        "broken@1.0.0": "big",
+      },
+    });
+    expect(settings.petScales).toEqual({
+      "yanghao@1.0.0": 2.5,
+      "lev-neon@1.0.0": 0.1,
+      "hwjin-black@1.0.0": 10,
+    });
+  });
+
   it("migrates the legacy single pet selection into the multi-pet list", () => {
     const settings = mergeSettings({
       schemaVersion: 1,

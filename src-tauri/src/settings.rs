@@ -15,6 +15,11 @@ pub struct SettingsV1 {
     #[serde(default)]
     pub selected_pets: Vec<SelectedPet>,
     pub pet: PetSettings,
+    /// Per-pet size overrides keyed by "id@version". A pet without an entry
+    /// falls back to the global `pet.scale`, so existing installs keep their
+    /// saved size until the user adjusts an individual pet.
+    #[serde(default)]
+    pub pet_scales: std::collections::HashMap<String, f64>,
     pub reminders: Vec<Reminder>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_pets_dir: Option<String>,
@@ -71,6 +76,13 @@ impl SettingsV1 {
         }
         self.pet.scale = self.pet.scale.clamp(0.1, 10.0);
         self.pet.speed = self.pet.speed.clamp(40.0, 140.0);
+        // Per-pet overrides follow the same limits as the global scale; drop
+        // entries that would render a window invisible or unmanageable.
+        self.pet_scales
+            .retain(|key, scale| !key.trim().is_empty() && scale.is_finite());
+        for scale in self.pet_scales.values_mut() {
+            *scale = scale.clamp(0.1, 10.0);
+        }
         // Migrate the legacy single selection into the multi-pet list, drop
         // duplicates and blank ids, and cap the number of simultaneous pets.
         if self.selected_pets.is_empty() {
@@ -321,6 +333,25 @@ mod tests {
         store.save_value(&value).unwrap();
         let loaded = store.load();
         assert_eq!(loaded.pet.scale, 10.0);
+    }
+
+    #[test]
+    fn clamps_per_pet_scale_overrides_and_drops_invalid_entries() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = SettingsStore::new(directory.path().join("settings.json"));
+        let mut value = store.load_value();
+        value["petScales"] = json!({
+            "yanghao@1.0.0": 2.5,
+            "lev-neon@1.0.0": 0.01,
+            "hwjin-black@1.0.0": 99.0,
+            "": 1.5
+        });
+        store.save_value(&value).unwrap();
+        let loaded = store.load();
+        assert_eq!(loaded.pet_scales.get("yanghao@1.0.0"), Some(&2.5));
+        assert_eq!(loaded.pet_scales.get("lev-neon@1.0.0"), Some(&0.1));
+        assert_eq!(loaded.pet_scales.get("hwjin-black@1.0.0"), Some(&10.0));
+        assert!(!loaded.pet_scales.contains_key(""));
     }
 
     #[test]

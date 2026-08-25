@@ -82,6 +82,17 @@ describe("PetWindow", () => {
     );
   });
 
+  it("renders at the per-pet size override instead of the global default", async () => {
+    tauriMocks.settingsGet.mockResolvedValue({
+      ...structuredClone(DEFAULT_SETTINGS),
+      petScales: { "yanghao@1.0.0": 2 },
+    });
+
+    render(<PetWindow />);
+
+    await waitFor(() => expect(screen.getByRole("img")).toHaveStyle({ width: "384px", height: "416px" }));
+  });
+
   it("plays jumping after a single click", async () => {
     vi.useFakeTimers();
     render(<PetWindow />);

@@ -30,6 +30,34 @@ describe("SettingsApp", () => {
     expect(preview).toHaveStyle({ width: "192px", height: "208px" });
   });
 
+  it("offers one size control per pet when several pets share the desktop", () => {
+    const onSettingsChange = vi.fn();
+    const multiPet: typeof DEFAULT_SETTINGS = {
+      ...structuredClone(DEFAULT_SETTINGS),
+      selectedPet: { id: "yanghao", version: "1.0.0" },
+      selectedPets: [
+        { id: "yanghao", version: "1.0.0" },
+        { id: "lev-neon", version: "1.0.0" },
+      ],
+      petScales: { "lev-neon@1.0.0": 2 },
+    };
+    render(<SettingsApp initialSettings={multiPet} onSettingsChange={onSettingsChange} />);
+
+    const defaultPetSlider = screen.getByRole("slider", { name: "默认伙伴大小" });
+    const levNeonSlider = screen.getByRole("slider", { name: "Lev-neon大小" });
+    // The per-pet override wins for Lev-neon; the default pet falls back to
+    // the shared size.
+    expect(defaultPetSlider).toHaveValue("100");
+    expect(levNeonSlider).toHaveValue("200");
+
+    fireEvent.change(defaultPetSlider, { target: { value: "300" } });
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        petScales: expect.objectContaining({ "yanghao@1.0.0": 3, "lev-neon@1.0.0": 2 }),
+      }),
+    );
+  });
+
   it("toggles pets onto and off the desktop from the library", () => {
     const onPetToggle = vi.fn();
     render(<SettingsApp initialSettings={DEFAULT_SETTINGS} onPetToggle={onPetToggle} />);

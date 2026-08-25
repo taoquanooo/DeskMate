@@ -118,6 +118,37 @@ fn pet_window_index(label: &str) -> Option<usize> {
     number.checked_sub(1).filter(|index| *index >= 1)
 }
 
+/// Effective size scale for the pet in selection slot `index`: the per-pet
+/// override ("id@version") when present, otherwise the global `pet.scale`.
+fn pet_scale_for(settings: &SettingsV1, index: usize) -> f64 {
+    settings
+        .selected_pets
+        .get(index)
+        .and_then(|pet| {
+            settings
+                .pet_scales
+                .get(&format!("{}@{}", pet.id, pet.version))
+        })
+        .copied()
+        .unwrap_or(settings.pet.scale)
+}
+
+/// Tauri creates the config-declared windows before running the `setup()`
+/// closure that calls `app.manage(AppState)`, so a fast-loading webview can
+/// invoke a command before the state exists (`panic = "abort"` makes guessing
+/// fatal, and silently returning wrong data loses the user's pets after every
+/// restart). Poll briefly for the managed state instead; only give up after
+/// about two seconds.
+async fn wait_for_app_state(app: &tauri::AppHandle) -> Option<tauri::State<'_, AppState>> {
+    for _ in 0..50 {
+        if let Some(state) = app.try_state::<AppState>() {
+            return Some(state);
+        }
+        tokio::time::sleep(Duration::from_millis(40)).await;
+    }
+    None
+}
+
 #[derive(Clone)]
 struct ReadyUpdate {
     update: tauri_plugin_updater::Update,
@@ -164,20 +195,24 @@ fn settings_patch(
     state: tauri::State<'_, AppState>,
     patch: serde_json::Value,
 ) -> Result<SettingsV1, String> {
-    let current = state
+    // Hold the settings lock across the whole read-merge-save-write cycle.
+    // The previous implementation cloned the settings, released the lock, and
+    // only then merged and saved: a concurrent `pet_selection_set` (or a
+    // rapid-fire slider patch) could commit in between and then be clobbered
+    // when this command wrote back its stale base — pet switches reverted and
+    // the size slider snapped back mid-drag.
+    let mut settings = state
         .settings
         .lock()
-        .map_err(|_| "settings lock poisoned")?
-        .clone();
+        .map_err(|_| "settings lock poisoned")?;
     let next = state
         .settings_store
-        .patch(&current, patch)
+        .patch(&settings, patch)
         .map_err(|error| error.to_string())?;
+    // `apply_window_settings` only touches windows and emits events; it never
+    // locks `state.settings`, so calling it under the lock cannot deadlock.
     apply_window_settings(&app, &next);
-    *state
-        .settings
-        .lock()
-        .map_err(|_| "settings lock poisoned")? = next.clone();
+    *settings = next.clone();
     Ok(next)
 }
 
@@ -242,11 +277,11 @@ async fn pet_install(app: tauri::AppHandle, id: String, version: String) -> Resu
 
 #[tauri::command]
 async fn installed_pets(app: tauri::AppHandle) -> Result<Vec<InstalledPetV1>, String> {
-    // Same pre-manage race as `pet_local_refresh`: the settings window can
-    // invoke this on mount before `app.manage(AppState)` has run. Without
-    // managed state there is no data dir yet, so return an empty list rather
-    // than panicking under `panic = "abort"`.
-    let pets_root = match app.try_state::<AppState>() {
+    // The settings window can invoke this on mount before
+    // `app.manage(AppState)` has run. Returning an empty list then makes the
+    // pet library claim that installed pets are missing, so wait for the
+    // state instead of guessing.
+    let pets_root = match wait_for_app_state(&app).await {
         Some(state) => state.data_dir.join("pets"),
         None => return Ok(Vec::new()),
     };
@@ -419,11 +454,10 @@ fn pet_selection_set(
 
 #[tauri::command]
 async fn pet_local_refresh(app: tauri::AppHandle) -> LocalPetScanV1 {
-    // Same pre-manage race as `pet_current`: the settings window can invoke
-    // this on mount before `app.manage(AppState)` has run. Without managed
-    // state there is no data dir yet, so return an empty scan rather than
-    // panicking under `panic = "abort"`.
-    let root = match app.try_state::<AppState>() {
+    // The settings window can invoke this on mount before
+    // `app.manage(AppState)` has run; wait for the state so the custom-pets
+    // directory resolves to the real path instead of an empty scan.
+    let root = match wait_for_app_state(&app).await {
         Some(state) => state
             .custom_pets_dir
             .read()
@@ -511,14 +545,14 @@ async fn pet_current(app: tauri::AppHandle, window: tauri::Window) -> PetChanged
         sprite_version_number: 2,
         spritesheet_path: None,
     };
-    // The pet window's frontend invokes `pet_current` on mount. Tauri creates
-    // config windows before running the `setup()` closure that calls
-    // `app.manage(AppState)`, so this command can race ahead of manage() and
-    // must not panic when the state is not yet available (`panic = "abort"`
-    // would otherwise kill the process instantly). Fall back to the default
-    // pet; once setup completes, later invocations resolve the real selection.
+    // The pet window's frontend invokes `pet_current` on mount, which can race
+    // ahead of `app.manage(AppState)`. Returning the default pet in that case
+    // loses the saved selection on every launch: the correcting
+    // `pet://changed` emit from `sync_pet_windows` may already be gone by the
+    // time the webview finishes loading, so the pet would stay wrong until the
+    // user re-selects it. Wait for the state instead of guessing.
     let selected = {
-        let Some(state) = app.try_state::<AppState>() else {
+        let Some(state) = wait_for_app_state(&app).await else {
             return fallback;
         };
         let settings = state.settings.lock().expect("settings poisoned").clone();
@@ -862,9 +896,12 @@ mod tests {
 
 fn apply_window_settings(app: &tauri::AppHandle, settings: &SettingsV1) {
     for (label, pet) in app.webview_windows() {
-        if pet_window_index(&label).is_none() {
+        let Some(index) = pet_window_index(&label) else {
             continue;
-        }
+        };
+        // Each pet can have its own size; windows follow the selection slot
+        // they render.
+        let scale = pet_scale_for(settings, index);
         let _ = pet.set_always_on_top(settings.pet.always_on_top);
         let _ = pet.set_ignore_cursor_events(settings.pet.click_through);
         let reposition = pet
@@ -876,8 +913,8 @@ fn apply_window_settings(app: &tauri::AppHandle, settings: &SettingsV1) {
                 let scale_factor = monitor.scale_factor();
                 // Add a small padding so the sprite is never clipped by the
                 // window's non-client area at extreme scales.
-                let new_width = ((192.0 * settings.pet.scale + 6.0) * scale_factor).round() as i32;
-                let new_height = ((208.0 * settings.pet.scale + 6.0) * scale_factor).round() as i32;
+                let new_width = ((192.0 * scale + 6.0) * scale_factor).round() as i32;
+                let new_height = ((208.0 * scale + 6.0) * scale_factor).round() as i32;
                 let work_area = monitor.work_area();
                 motion::resize_around_bottom_center(
                     motion::Point {
@@ -897,8 +934,8 @@ fn apply_window_settings(app: &tauri::AppHandle, settings: &SettingsV1) {
                 )
             });
         let _ = pet.set_size(tauri::LogicalSize::new(
-            192.0 * settings.pet.scale + 6.0,
-            208.0 * settings.pet.scale + 6.0,
+            192.0 * scale + 6.0,
+            208.0 * scale + 6.0,
         ));
         if let Some(position) = reposition {
             let _ = pet.set_position(tauri::PhysicalPosition::new(
@@ -906,8 +943,10 @@ fn apply_window_settings(app: &tauri::AppHandle, settings: &SettingsV1) {
                 position.y.round() as i32,
             ));
         }
+        // Per-window emit: with several pets on the desktop each window must
+        // receive its own scale, not the global default.
+        let _ = app.emit_to(label.as_str(), "settings://scale", scale);
     }
-    let _ = app.emit("settings://scale", settings.pet.scale);
 }
 
 fn set_click_through(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
@@ -1469,6 +1508,15 @@ fn sync_pet_windows(app: &tauri::AppHandle) -> Result<(), String> {
             let _ = app.emit_to(pet_window_label(index), "pet://changed", payload);
         }
     }
+    // The settings window listens for `pet://changed` to refresh its preview,
+    // but the per-window `emit_to` payloads above never reach it. Send the
+    // primary pet explicitly so the preview tracks switches and multi-pet
+    // changes.
+    if let Some(primary) = settings.selected_pets.first() {
+        if let Ok(payload) = resolve_pet_payload(app, &primary.id, &primary.version) {
+            let _ = app.emit_to("settings", "pet://changed", payload);
+        }
+    }
     Ok(())
 }
 
@@ -1478,8 +1526,9 @@ fn create_pet_window(
     settings: &SettingsV1,
     index: usize,
 ) -> Result<tauri::WebviewWindow, String> {
-    let width = 192.0 * settings.pet.scale + 6.0;
-    let height = 208.0 * settings.pet.scale + 6.0;
+    let scale = pet_scale_for(settings, index);
+    let width = 192.0 * scale + 6.0;
+    let height = 208.0 * scale + 6.0;
     let window = tauri::WebviewWindowBuilder::new(
         app,
         label,

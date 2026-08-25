@@ -92,4 +92,17 @@ describe("PetSizeSetting", () => {
     fireEvent.blur(input);
     expect(input).toHaveValue(100);
   });
+
+  it("labels the controls with the pet name when several pets share the desktop", () => {
+    const onChange = vi.fn();
+    render(<PetSizeSetting scale={1.5} onChange={onChange} name="尧世渊" />);
+
+    const slider = screen.getByRole("slider", { name: "尧世渊大小" });
+    const input = screen.getByRole("spinbutton", { name: "尧世渊大小百分比" });
+    expect(screen.getByText("大小 · 尧世渊")).toBeInTheDocument();
+
+    fireEvent.change(slider, { target: { value: "200" } });
+    expect(onChange).toHaveBeenCalledWith(2);
+    expect(input).toHaveValue(150);
+  });
 });

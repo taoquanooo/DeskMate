@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import type { Reminder, ReminderSchedule } from "../domain/reminders";
 import type { LocalPetV1, PetCatalogV1 } from "../domain/pets";
-import { MAX_ACTIVE_PETS, type PetSelection, type SettingsV1 } from "../domain/settings";
+import { MAX_ACTIVE_PETS, petScaleKey, type PetSelection, type SettingsV1 } from "../domain/settings";
 import {
   BUILT_IN_PETS,
   PETDEX_URL,
@@ -124,6 +124,10 @@ export function SettingsApp({
     persist({ ...settings, pet: { ...settings.pet, ...patch } });
   };
 
+  const setPetScale = (key: string, scale: number) => {
+    persist({ ...settings, petScales: { ...settings.petScales, [key]: scale } });
+  };
+
   const patchReminder = (id: string, patch: Partial<Reminder>) => {
     persist({
       ...settings,
@@ -179,6 +183,7 @@ export function SettingsApp({
           <PetSettings
             settings={settings}
             patchPet={patchPet}
+            onPetScaleChange={setPetScale}
             onRecall={onRecall}
             currentPet={currentPet}
             localPets={localPets}
@@ -245,6 +250,7 @@ function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
 function PetSettings({
   settings,
   patchPet,
+  onPetScaleChange,
   onRecall,
   currentPet,
   localPets,
@@ -252,6 +258,7 @@ function PetSettings({
 }: {
   settings: SettingsV1;
   patchPet: (patch: Partial<SettingsV1["pet"]>) => void;
+  onPetScaleChange: (key: string, scale: number) => void;
   onRecall?: () => void;
   currentPet?: PetChangedPayload | null;
   localPets: LocalPetV1[];
@@ -263,12 +270,13 @@ function PetSettings({
     spriteVersionNumber: 2,
     spritesheetPath: null,
   };
-  const previewName =
-    BUILT_IN_PETS.find((pet) => pet.id === previewPet.id)?.displayName ??
-    localPets.find((pet) => pet.id === previewPet.id)?.displayName ??
-    catalog?.pets.find((pet) => pet.id === previewPet.id && pet.version === previewPet.version)
-      ?.displayName ??
-    previewPet.id;
+  const petDisplayName = (selection: PetSelection) =>
+    BUILT_IN_PETS.find((pet) => pet.id === selection.id && pet.version === selection.version)?.displayName ??
+    localPets.find((pet) => pet.id === selection.id)?.displayName ??
+    catalog?.pets.find((pet) => pet.id === selection.id && pet.version === selection.version)?.displayName ??
+    selection.id;
+  const previewName = petDisplayName(previewPet);
+  const multiplePets = settings.selectedPets.length > 1;
 
   return (
     <>
@@ -290,7 +298,19 @@ function PetSettings({
           </button>
         </section>
         <section className="setting-list" aria-label="桌宠行为设置">
-          <PetSizeSetting scale={settings.pet.scale} onChange={(scale) => patchPet({ scale })} />
+          {settings.selectedPets.map((selection) => {
+            // One size control per pet on the desktop: a per-pet override when
+            // set, otherwise the shared default size.
+            const key = petScaleKey(selection);
+            return (
+              <PetSizeSetting
+                key={key}
+                name={multiplePets ? petDisplayName(selection) : undefined}
+                scale={settings.petScales[key] ?? settings.pet.scale}
+                onChange={(scale) => onPetScaleChange(key, scale)}
+              />
+            );
+          })}
           <RangeSetting
             label="移动速度"
             value={settings.pet.speed}

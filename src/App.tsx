@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SettingsV1 } from "./domain/settings";
 import type { LocalPetScanV1, PetCatalogV1 } from "./domain/pets";
 import { Onboarding, type OnboardingChoice } from "./components/Onboarding";
@@ -60,6 +60,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
   });
   const [updateUi, setUpdateUi] = useState<UpdateUi>({ state: "idle" });
   const [currentPet, setCurrentPet] = useState<PetChangedPayload | null>(null);
+  const settingsPatchSeq = useRef(0);
   const [installedPetList, setInstalledPetList] = useState<InstalledPet[]>([]);
   const [installProgress, setInstallProgress] = useState<Record<string, InstallProgress>>({});
 
@@ -268,8 +269,22 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
     // switching appear broken. Strip them from the patch so the backend keeps
     // whatever is currently in its state.
     const { selectedPet: _omitPet, selectedPets: _omitPets, ...patch } = next;
+    // Slider drags fire many patches in a row and their responses can arrive
+    // out of order; adopting an older response makes the UI snap back
+    // mid-drag. Only the latest request is allowed to replace the state.
+    const request = ++settingsPatchSeq.current;
     void settingsPatch(patch).then(
-      (sanitized) => setSettings(sanitized),
+      (sanitized) => {
+        if (request !== settingsPatchSeq.current) return;
+        // Keep the locally owned selection: the patch response may have been
+        // computed before a concurrent `petSelectionSet` committed, and
+        // adopting its stale list would undo the user's pet switch.
+        setSettings((current) =>
+          current
+            ? { ...sanitized, selectedPet: current.selectedPet, selectedPets: current.selectedPets }
+            : sanitized,
+        );
+      },
       // A failed save must be visible: the in-memory UI already shows the
       // new value, so silently swallowing the error would let the user
       // believe their change reached the disk.
