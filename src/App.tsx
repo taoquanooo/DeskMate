@@ -14,6 +14,7 @@ import {
   listenEvent,
   petRecall,
   petCatalogRefresh,
+  petCatalogGet,
   catalogStatus,
   petCurrent,
   petInstall,
@@ -62,6 +63,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
   const [currentPet, setCurrentPet] = useState<PetChangedPayload | null>(null);
   const settingsPatchSeq = useRef(0);
   const [installedPetList, setInstalledPetList] = useState<InstalledPet[]>([]);
+  const installedScanSeq = useRef(0);
   const [installProgress, setInstallProgress] = useState<Record<string, InstallProgress>>({});
 
   useEffect(() => {
@@ -80,6 +82,29 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
     if (!settings?.onboardingComplete) return;
     let active = true;
     let disposeUpdate: (() => void) | undefined;
+    let disposeCatalog: (() => void) | undefined;
+    let catalogChanged = false;
+    // Subscribe before reading the cache so a first background refresh cannot
+    // be lost, or be replaced by an older in-flight cache response.
+    void listenEvent<PetCatalogV1>("catalog://updated", (next) => {
+      catalogChanged = true;
+      if (active) {
+        setCatalog(next);
+        setCatalogError(null);
+      }
+    })
+      .then(async (dispose) => {
+        if (!active) {
+          dispose();
+          return;
+        }
+        disposeCatalog = dispose;
+        const cached = await petCatalogGet();
+        if (active && !catalogChanged) setCatalog(cached);
+      })
+      .catch((error) => {
+        if (active) setCatalogError(`无法读取宠物目录缓存：${String(error)}`);
+      });
     // Check the initial red-dot state from the backend (it knows whether the
     // on-disk cache is newer than what the user last acknowledged).
     void catalogStatus().then(
@@ -96,6 +121,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
     return () => {
       active = false;
       disposeUpdate?.();
+      disposeCatalog?.();
     };
   }, [settings?.onboardingComplete]);
 
@@ -169,12 +195,16 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
     let disposedInstalled: (() => void) | undefined;
     let disposedProgress: (() => void) | undefined;
     let disposedUninstalled: (() => void) | undefined;
+    let disposedRestored: (() => void) | undefined;
     const refreshInstalled = async () => {
+      const request = ++installedScanSeq.current;
       try {
         const list = await installedPets();
-        if (active) setInstalledPetList(list);
-      } catch {
-        // best-effort: installed list is supplemental
+        if (active && request === installedScanSeq.current) setInstalledPetList(list);
+      } catch (error) {
+        if (active && request === installedScanSeq.current) {
+          setCatalogError(`无法读取已下载宠物：${String(error)}`);
+        }
       }
     };
     void refreshInstalled();
@@ -208,11 +238,18 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
       if (active) disposedProgress = dispose;
       else dispose();
     });
+    void listenEvent("pet://restored", () => {
+      if (active) void refreshLocalPets();
+    }).then((dispose) => {
+      if (active) disposedRestored = dispose;
+      else dispose();
+    });
     return () => {
       active = false;
       disposedInstalled?.();
       disposedProgress?.();
       disposedUninstalled?.();
+      disposedRestored?.();
     };
   }, [settings?.onboardingComplete]);
 
@@ -370,17 +407,33 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
           ...current,
           [`${id}@${version}`]: { id, version, downloaded: 0, total: 0 },
         }));
-        void petInstall(id, version).then(
-          () => refreshCatalog(),
-          (error) => {
+        setCatalogError(null);
+        void petInstall(id, version)
+          .then(
+            async () => {
+              // Command completion is authoritative even if the event listener
+              // was not ready. Installation does not need another network fetch.
+              const request = ++installedScanSeq.current;
+              try {
+                const list = await installedPets();
+                if (request === installedScanSeq.current) setInstalledPetList(list);
+              } catch (error) {
+                if (request === installedScanSeq.current) {
+                  setCatalogError(`宠物已安装，但无法读取已下载列表：${String(error)}`);
+                }
+              }
+            },
+            (error) => {
+              setCatalogError(`安装失败：${String(error)}`);
+            },
+          )
+          .finally(() => {
             setInstallProgress((current) => {
               const next = { ...current };
               delete next[`${id}@${version}`];
               return next;
             });
-            setCatalogError(`安装失败：${String(error)}`);
-          },
-        );
+          });
       }}
       onPetToggle={(id, version) => {
         // Single-pet mode: switching replaces the desktop pet outright.

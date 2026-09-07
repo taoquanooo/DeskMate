@@ -31,6 +31,10 @@ import {
 import { PetPreview } from "./PetPreview";
 import { PetSizeSetting } from "./PetSizeSetting";
 import { PetThumbnail } from "./PetThumbnail";
+import { RandomActivitySettingsPanel } from "./RandomActivitySettingsPanel";
+import { activityStatusText } from "../domain/activities";
+import { useActivityStatus } from "../lib/useActivityStatus";
+import { LocalPetTrash } from "./LocalPetTrash";
 
 export type UpdateUi = {
   state: "idle" | "checking" | "up-to-date" | "ready" | "error";
@@ -74,7 +78,7 @@ export interface SettingsAppProps {
 
 const NAV: Array<{ id: Section; label: string; icon: typeof PawPrint }> = [
   { id: "pet", label: "桌宠", icon: PawPrint },
-  { id: "reminders", label: "提醒", icon: Bell },
+  { id: "reminders", label: "活动", icon: Bell },
   { id: "library", label: "宠物库", icon: Box },
   { id: "about", label: "关于", icon: CircleHelp },
 ];
@@ -110,7 +114,19 @@ export function SettingsApp({
   currentPet,
 }: SettingsAppProps) {
   const [settings, setSettings] = useState(initialSettings);
+  const activityStatus = useActivityStatus();
+  const activityStatusLabel = activityStatusText(settings.randomActivity, activityStatus);
   const [section, setSection] = useState<Section>("pet");
+  const [activityIntervalDraft, setActivityIntervalDraft] = useState({
+    min: String(initialSettings.randomActivity.customMinSeconds),
+    max: String(initialSettings.randomActivity.customMaxSeconds),
+  });
+  useEffect(() => {
+    setActivityIntervalDraft({
+      min: String(settings.randomActivity.customMinSeconds),
+      max: String(settings.randomActivity.customMaxSeconds),
+    });
+  }, [settings.randomActivity.customMinSeconds, settings.randomActivity.customMaxSeconds]);
 
   useEffect(() => {
     setSettings(initialSettings);
@@ -180,6 +196,10 @@ export function SettingsApp({
           <PetSettings
             settings={settings}
             patchPet={patchPet}
+            activityStatusLabel={activityStatusLabel}
+            onActivityToggle={(enabled) =>
+              persist({ ...settings, randomActivity: { ...settings.randomActivity, enabled } })
+            }
             onRecall={onRecall}
             currentPet={currentPet}
             localPets={localPets}
@@ -187,14 +207,35 @@ export function SettingsApp({
           />
         )}
         {section === "reminders" && (
-          <ReminderSettings
-            settings={settings}
-            patchReminder={patchReminder}
-            onAdd={(reminder) => persist({ ...settings, reminders: [...settings.reminders, reminder] })}
-            onRemove={(id) =>
-              persist({ ...settings, reminders: settings.reminders.filter((item) => item.id !== id) })
-            }
-          />
+          <>
+            <PageHeader title="活动" subtitle="用随机动作增添活力，也可以设置定时提醒。" />
+            <RandomActivitySettingsPanel
+              value={settings.randomActivity}
+              statusLabel={activityStatusLabel}
+              intervalDraft={activityIntervalDraft}
+              onIntervalDraftChange={setActivityIntervalDraft}
+              displayName={
+                BUILT_IN_PETS.find((pet) => pet.id === (currentPet?.id ?? settings.selectedPet.id))
+                  ?.displayName ??
+                localPets.find((pet) => pet.id === (currentPet?.id ?? settings.selectedPet.id))
+                  ?.displayName ??
+                catalog?.pets.find((pet) => pet.id === (currentPet?.id ?? settings.selectedPet.id))
+                  ?.displayName ??
+                currentPet?.id ??
+                settings.selectedPet.id
+              }
+              onChange={(randomActivity) => persist({ ...settings, randomActivity })}
+              pet={currentPet ?? { ...settings.selectedPet, spriteVersionNumber: 2, spritesheetPath: null }}
+            />
+            <ReminderSettings
+              settings={settings}
+              patchReminder={patchReminder}
+              onAdd={(reminder) => persist({ ...settings, reminders: [...settings.reminders, reminder] })}
+              onRemove={(id) =>
+                persist({ ...settings, reminders: settings.reminders.filter((item) => item.id !== id) })
+              }
+            />
+          </>
         )}
         {section === "library" && (
           <PetLibrary
@@ -245,14 +286,18 @@ function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
 
 function PetSettings({
   settings,
+  activityStatusLabel,
   patchPet,
+  onActivityToggle,
   onRecall,
   currentPet,
   localPets,
   catalog,
 }: {
   settings: SettingsV1;
+  activityStatusLabel: string;
   patchPet: (patch: Partial<SettingsV1["pet"]>) => void;
+  onActivityToggle: (enabled: boolean) => void;
   onRecall?: () => void;
   currentPet?: PetChangedPayload | null;
   localPets: LocalPetV1[];
@@ -305,6 +350,19 @@ function PetSettings({
             onChange={(value) => patchPet({ roamingEnabled: value })}
           />
           <ToggleSetting
+            label="随机活动"
+            description={
+              settings.randomActivity.enabledActions.length === 0
+                ? "未选择动作，请到“活动”页至少开启一种动作"
+                : "随机播放原地动作，动作与频率可在“活动”页设置"
+            }
+            checked={settings.randomActivity.enabled}
+            onChange={onActivityToggle}
+          />
+          <p className="activity-runtime-status" aria-label="随机活动运行状态">
+            {activityStatusLabel}
+          </p>
+          <ToggleSetting
             label="始终置顶"
             description="让桌宠显示在普通窗口上方"
             checked={settings.pet.alwaysOnTop}
@@ -341,14 +399,14 @@ function ReminderSettings({
 }) {
   return (
     <>
-      <PageHeader title="提醒设置" subtitle="用安静的小气泡提醒你照顾好自己。" />
+      <header className="activity-section-header">
+        <h2>定时提醒</h2>
+        <p>用安静的小气泡提醒你照顾好自己。</p>
+      </header>
       <section className="reminder-list">
         {settings.reminders.map((reminder) => (
           <article className="reminder-row" key={reminder.id}>
-            <div className="reminder-copy">
-              <strong>{reminder.title}</strong>
-              <span>{reminder.message}</span>
-            </div>
+            <ReminderCopyEditor reminder={reminder} onSave={(patch) => patchReminder(reminder.id, patch)} />
             <select
               className="schedule-kind"
               aria-label={`${reminder.title}计划类型`}
@@ -429,6 +487,73 @@ function ReminderSettings({
   );
 }
 
+function ReminderCopyEditor({
+  reminder,
+  onSave,
+}: {
+  reminder: Reminder;
+  onSave: (patch: Partial<Reminder>) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(reminder.title);
+  const [message, setMessage] = useState(reminder.message);
+  const valid = title.trim().length > 0 && message.trim().length > 0;
+  if (!editing)
+    return (
+      <div className="reminder-copy">
+        <strong>{reminder.title}</strong>
+        <span>{reminder.message}</span>
+        <button
+          type="button"
+          className="reminder-edit-button"
+          aria-label={`编辑提醒 ${reminder.title}`}
+          onClick={() => {
+            setTitle(reminder.title);
+            setMessage(reminder.message);
+            setEditing(true);
+          }}
+        >
+          编辑内容
+        </button>
+      </div>
+    );
+  return (
+    <form
+      className="reminder-copy reminder-copy-editor"
+      aria-label={`编辑提醒 ${reminder.title}`}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!valid) return;
+        onSave({ title: title.trim(), message: message.trim() });
+        setEditing(false);
+      }}
+    >
+      <label>
+        提醒标题
+        <input autoFocus value={title} maxLength={60} onChange={(event) => setTitle(event.target.value)} />
+      </label>
+      <label>
+        提醒内容
+        <textarea
+          value={message}
+          maxLength={240}
+          rows={2}
+          onChange={(event) => setMessage(event.target.value)}
+        />
+      </label>
+      {!valid && <small role="alert">标题和内容不能为空。</small>}
+      <div>
+        <button className="button button-secondary" type="submit" disabled={!valid}>
+          保存内容
+        </button>{" "}
+        <button className="button button-secondary" type="button" onClick={() => setEditing(false)}>
+          取消
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function PetLibrary({
   catalog,
   error,
@@ -468,7 +593,24 @@ function PetLibrary({
   onOpenPetGallery?: () => void;
   onOpenPetDex?: () => void;
 }) {
-  const pets = catalog?.pets ?? [];
+  const catalogPets = catalog?.pets ?? [];
+  // A missing/offline catalog must not hide installed pets (including older
+  // versions that are no longer listed by the current catalog).
+  const pets = [
+    ...catalogPets,
+    ...installedPets
+      .filter(
+        (installed) =>
+          !catalogPets.some((pet) => pet.id === installed.id && pet.version === installed.version),
+      )
+      .map((installed) => ({
+        ...installed,
+        description: "已保存在本机，离线也可使用。",
+        author: "",
+        assetLicense: "",
+        previewUrl: undefined,
+      })),
+  ];
   const isSelected = (id: string, version: string) =>
     selectedPets.some((pet) => pet.id === id && pet.version === version);
   // Single-pet mode: tapping a non-active pet switches the desktop to it; the
@@ -553,6 +695,7 @@ function PetLibrary({
           ))}
         </div>
       )}
+      <LocalPetTrash folderPath={localPetFolder} />
       {localPets.map((pet) => (
         <article className="catalog-pet-row local-pet-row" key={`${pet.id}@local`}>
           <PetThumbnail
@@ -571,10 +714,12 @@ function PetLibrary({
             {toggleButton(pet.id, "local")}
             <button
               className="button button-danger"
-              title="删除"
+              title="移入宠物回收站，可恢复"
+              aria-label={`移入回收站 ${pet.displayName}`}
               onClick={() => onUninstall?.(pet.id, "local")}
             >
               <Trash2 size={15} />
+              移入回收站
             </button>
           </div>
         </article>
@@ -591,6 +736,11 @@ function PetLibrary({
           {updateAvailable && <span className="refresh-dot" aria-label="有新宠物可用" />}
         </button>
       </div>
+      {error && (
+        <p className="local-pet-errors" role="alert">
+          {error}
+        </p>
+      )}
       {BUILT_IN_PETS.map((pet) => (
         <article className="library-row" key={`${pet.id}@${pet.version}`}>
           <PetThumbnail
@@ -615,7 +765,6 @@ function PetLibrary({
         .map((pet) => {
           const installed = installedPets.find((item) => item.id === pet.id && item.version === pet.version);
           const progress = installProgress[`${pet.id}@${pet.version}`];
-          const isDownloading = Boolean(progress);
           const percent =
             progress && progress.total > 0
               ? Math.min(100, Math.round((progress.downloaded / progress.total) * 100))
@@ -633,9 +782,11 @@ function PetLibrary({
                   {pet.displayName} · v{pet.version}
                 </strong>
                 <p>{pet.description}</p>
-                <small>
-                  {pet.author} · {pet.assetLicense}
-                </small>
+                {pet.author && (
+                  <small>
+                    {pet.author} · {pet.assetLicense}
+                  </small>
+                )}
               </div>
               <div className="pet-library-actions">
                 {installed ? (
@@ -698,7 +849,7 @@ function About({
       <div className="about-mark">
         <Heart size={32} fill="currentColor" />
       </div>
-      <h2 className="about-title">DeskMate v0.1.4</h2>
+      <h2 className="about-title">DeskMate v{pkg.version}</h2>
       <p className="about-intro">陪伴、提醒和可更换宠物都在本机完成</p>
       <p className="about-copy">程序代码采用 MIT 许可证。</p>
       <div className="about-actions">

@@ -22,6 +22,22 @@ vi.mock("../lib/tauri", () => ({
 import { PetWindow } from "./PetWindow";
 
 describe("PetWindow", () => {
+  it("hands a random activity to manual interaction, then the pending reminder, then idle", async () => {
+    vi.useFakeTimers();
+    render(<PetWindow />);
+    await act(async () => undefined);
+    const animation = tauriMocks.eventHandlers.get("runtime://animation")!;
+    act(() => animation({ state: "review" }));
+    expect(screen.getByRole("img")).toHaveAttribute("data-row", "8");
+    fireEvent.doubleClick(screen.getByLabelText("DeskMate 桌宠窗口"));
+    act(() => animation({ state: "idle" })); // native cancellation updates the resume state
+    expect(screen.getByRole("img")).toHaveAttribute("data-row", "3");
+    act(() => animation({ state: "waiting" }));
+    act(() => vi.advanceTimersByTime(900));
+    expect(screen.getByRole("img")).toHaveAttribute("data-row", "6");
+    act(() => animation({ state: "idle" })); // also delivered on bubble auto-hide
+    expect(screen.getByRole("img")).toHaveAttribute("data-row", "0");
+  });
   beforeEach(() => {
     tauriMocks.eventHandlers.clear();
     tauriMocks.listenEvent.mockReset();
@@ -43,6 +59,58 @@ describe("PetWindow", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("fits the entire sprite inside an 80% native window before settings finish loading", async () => {
+    vi.stubGlobal("innerWidth", 160);
+    vi.stubGlobal("innerHeight", 172);
+    tauriMocks.settingsGet.mockImplementation(() => new Promise(() => undefined));
+
+    render(<PetWindow />);
+    await act(async () => undefined);
+
+    const sprite = screen.getByRole("img");
+    expect(parseFloat(sprite.style.width)).toBeLessThanOrEqual(154);
+    expect(parseFloat(sprite.style.height)).toBeLessThanOrEqual(166);
+    expect(parseFloat(sprite.style.width) / parseFloat(sprite.style.height)).toBeCloseTo(192 / 208);
+  });
+
+  it("fits fractional DPI rounding and follows native resizes", async () => {
+    vi.stubGlobal("innerWidth", 160);
+    vi.stubGlobal("innerHeight", 172);
+    tauriMocks.settingsGet.mockResolvedValue({
+      ...structuredClone(DEFAULT_SETTINGS),
+      pet: { ...DEFAULT_SETTINGS.pet, scale: 0.8 },
+    });
+    render(<PetWindow />);
+    await act(async () => undefined);
+
+    const sprite = screen.getByRole("img");
+    expect(parseFloat(sprite.style.height)).toBeLessThanOrEqual(166);
+
+    act(() => tauriMocks.eventHandlers.get("settings://scale")?.(2));
+    expect(parseFloat(sprite.style.height)).toBeLessThanOrEqual(166);
+    vi.stubGlobal("innerWidth", 390);
+    vi.stubGlobal("innerHeight", 422);
+    fireEvent(window, new Event("resize"));
+    expect(sprite).toHaveStyle({ width: "384px", height: "416px" });
+  });
+
+  it("does not let a delayed initial settings response undo a newer scale event", async () => {
+    let finishSettings!: (value: typeof DEFAULT_SETTINGS) => void;
+    tauriMocks.settingsGet.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishSettings = resolve;
+        }),
+    );
+    render(<PetWindow />);
+    await act(async () => undefined);
+
+    act(() => tauriMocks.eventHandlers.get("settings://scale")?.(0.8));
+    await act(async () => finishSettings(structuredClone(DEFAULT_SETTINGS)));
+    expect(screen.getByRole("img")).toHaveStyle({ width: "153.60000000000002px", height: "166.4px" });
   });
 
   it("restores a selected custom pet after the application restarts", async () => {

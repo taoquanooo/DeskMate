@@ -1,11 +1,15 @@
+mod activities;
 mod motion;
 mod pet_asset_scope;
+mod pet_download;
+mod pet_trash;
 mod pets;
 mod reminders;
 mod runtime;
 mod settings;
 
 use futures_util::StreamExt;
+use pet_download::MAX_PET_PACKAGE_BYTES;
 use pets::{LocalPetScanV1, PetCatalogEntryV1, PetCatalogV1};
 use serde::Serialize;
 use settings::{SelectedPet, SettingsStore, SettingsV1};
@@ -24,7 +28,6 @@ use tauri_plugin_updater::UpdaterExt;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAX_CATALOG_BYTES: usize = 2 * 1024 * 1024;
-const MAX_PET_PACKAGE_BYTES: u64 = 25 * 1024 * 1024;
 const PROJECT_URL: &str = "https://github.com/taoquanooo/DeskMate";
 const PET_GALLERY_URL: &str = "https://codex-pet.org/zh/";
 const PETDEX_URL: &str = "https://petdex.dev/";
@@ -69,6 +72,7 @@ pub struct AppState {
     interacting: Mutex<HashMap<String, bool>>,
     moving: Mutex<HashMap<String, bool>>,
     pet_engines: Mutex<HashSet<String>>,
+    activity_status: Mutex<Option<activities::ActivityStatus>>,
     ready_update: Mutex<Option<ReadyUpdate>>,
     install_lock: tokio::sync::Mutex<()>,
     // Set to true when a background check discovers that the remote pet catalog
@@ -163,8 +167,16 @@ struct WindowFlagPayload {
 }
 
 #[tauri::command]
-fn settings_get(state: tauri::State<'_, AppState>) -> SettingsV1 {
-    state.settings.lock().expect("settings poisoned").clone()
+async fn settings_get(app: tauri::AppHandle) -> Result<SettingsV1, String> {
+    let state = wait_for_app_state(&app)
+        .await
+        .ok_or("应用尚未初始化，请稍后重试")?;
+    let settings = state
+        .settings
+        .lock()
+        .map_err(|_| "settings lock poisoned")?
+        .clone();
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -195,6 +207,19 @@ fn settings_patch(
 }
 
 #[tauri::command]
+async fn activity_status_get(
+    app: tauri::AppHandle,
+) -> Result<Option<activities::ActivityStatus>, String> {
+    let state = wait_for_app_state(&app).await.ok_or("应用尚未初始化")?;
+    let status = state
+        .activity_status
+        .lock()
+        .map_err(|_| "活动状态不可用")?
+        .clone();
+    Ok(status)
+}
+
+#[tauri::command]
 fn autostart_set(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let manager = app.autolaunch();
     if enabled {
@@ -203,6 +228,19 @@ fn autostart_set(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
         manager.disable()
     }
     .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn pet_catalog_get(app: tauri::AppHandle) -> Result<Option<PetCatalogV1>, String> {
+    let state = wait_for_app_state(&app)
+        .await
+        .ok_or("应用尚未初始化，请稍后重试")?;
+    let catalog = state
+        .catalog
+        .read()
+        .map_err(|_| "catalog lock poisoned")?
+        .clone();
+    Ok(catalog)
 }
 
 #[tauri::command]
@@ -261,49 +299,58 @@ async fn installed_pets(app: tauri::AppHandle) -> Result<Vec<InstalledPetV1>, St
     // state instead of guessing.
     let pets_root = match wait_for_app_state(&app).await {
         Some(state) => state.data_dir.join("pets"),
-        None => return Ok(Vec::new()),
+        None => return Err("应用尚未初始化，请稍后重试".into()),
     };
-    tauri::async_runtime::spawn_blocking(move || scan_installed_pets(&pets_root))
+    let installed = tauri::async_runtime::spawn_blocking(move || scan_installed_pets(&pets_root))
         .await
-        .map_err(|error| format!("扫描已安装宠物失败：{error}"))?
+        .map_err(|error| format!("扫描已安装宠物失败：{error}"))??;
+    // Authorize validated atlases before the UI requests them, including pets
+    // that have never been selected in this process.
+    for pet in &installed {
+        pet_asset_scope::authorize_selected_asset(Path::new(&pet.spritesheet_path), |path| {
+            app.asset_protocol_scope().allow_file(path)
+        })?;
+    }
+    Ok(installed)
 }
 
 #[tauri::command]
 async fn pet_uninstall(app: tauri::AppHandle, id: String, version: String) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let deleted_dir = if version == "local" {
+    let _install_guard = state.install_lock.lock().await;
+    if version == "local" {
         // Custom pet: find the folder by scanning the custom pets directory.
         let custom_root = state
             .custom_pets_dir
             .read()
             .map_err(|_| "custom_pets_dir lock poisoned")?
             .clone();
-        let scan =
-            tauri::async_runtime::spawn_blocking(move || pets::scan_local_pets(&custom_root))
-                .await
-                .map_err(|error| format!("扫描自定义宠物失败：{error}"))?;
-        let pet = scan
-            .pets
-            .into_iter()
-            .find(|pet| pet.id == id)
-            .ok_or_else(|| format!("找不到本地宠物 {id}"))?;
-        let dir = state
-            .custom_pets_dir
-            .read()
-            .map_err(|_| "custom_pets_dir lock poisoned")?
-            .join(&pet.folder_name);
-        dir
+        let requested_id = id.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let scan = pets::scan_local_pets(&custom_root);
+            let pet = scan
+                .pets
+                .into_iter()
+                .find(|pet| pet.id == requested_id)
+                .ok_or_else(|| format!("找不到本地宠物 {requested_id}"))?;
+            pet_trash::recycle(&custom_root, &pet.folder_name, &pet.display_name)
+                .map_err(|error| format!("移入回收站失败：{error}"))?;
+            Ok::<(), String>(())
+        })
+        .await
+        .map_err(|error| format!("回收宠物失败：{error}"))??;
     } else {
-        state.data_dir.join("pets").join(&id).join(&version)
-    };
-    tauri::async_runtime::spawn_blocking(move || {
-        if deleted_dir.exists() {
-            std::fs::remove_dir_all(&deleted_dir).map_err(|error| format!("删除失败：{error}"))?;
-        }
-        Ok::<(), String>(())
-    })
-    .await
-    .map_err(|error| format!("删除任务失败：{error}"))??;
+        let deleted_dir = state.data_dir.join("pets").join(&id).join(&version);
+        tauri::async_runtime::spawn_blocking(move || {
+            if deleted_dir.exists() {
+                std::fs::remove_dir_all(&deleted_dir)
+                    .map_err(|error| format!("删除失败：{error}"))?;
+            }
+            Ok::<(), String>(())
+        })
+        .await
+        .map_err(|error| format!("删除任务失败：{error}"))??;
+    }
     // If the deleted pet was on the desktop, drop it from the selection; when
     // nothing is left, fall back to the default companion.
     let selection_changed = {
@@ -338,6 +385,37 @@ async fn pet_uninstall(app: tauri::AppHandle, id: String, version: String) -> Re
         "pet://uninstalled",
         serde_json::json!({ "id": id, "version": version }),
     );
+    Ok(())
+}
+
+#[tauri::command]
+async fn pet_trash_list(app: tauri::AppHandle) -> Result<Vec<pet_trash::TrashEntry>, String> {
+    let state = wait_for_app_state(&app).await.ok_or("应用尚未初始化")?;
+    let root = state
+        .custom_pets_dir
+        .read()
+        .map_err(|_| "自定义文件夹不可用")?
+        .clone();
+    tauri::async_runtime::spawn_blocking(move || pet_trash::list(&root).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn pet_trash_restore(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let state = wait_for_app_state(&app).await.ok_or("应用尚未初始化")?;
+    let _install_guard = state.install_lock.lock().await;
+    let root = state
+        .custom_pets_dir
+        .read()
+        .map_err(|_| "自定义文件夹不可用")?
+        .clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        pet_trash::restore(&root, &id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let _ = app.emit("pet://restored", ());
     Ok(())
 }
 
@@ -668,17 +746,17 @@ pub fn run() {
             let reminder_runtime = Arc::new(reminders::ReminderRuntime::default());
             reminder_runtime.initialize(&settings.reminders);
             app.manage(AppState {
+                activity_status: Mutex::new(None),
                 settings: Mutex::new(settings.clone()),
                 settings_store,
                 catalog: RwLock::new(catalog),
                 data_dir,
                 custom_pets_dir: RwLock::new(custom_pets_dir),
-                client: reqwest::Client::builder()
-                    .user_agent(format!("DeskMate/{APP_VERSION}"))
-                    .connect_timeout(Duration::from_secs(10))
-                    .timeout(Duration::from_secs(45))
-                    .redirect(reqwest::redirect::Policy::limited(5))
-                    .build()?,
+                client: pet_download::client_builder(
+                    &format!("DeskMate/{APP_VERSION}"),
+                    Duration::from_secs(45),
+                )
+                .build()?,
                 paused: AtomicBool::new(false),
                 fullscreen: AtomicBool::new(false),
                 exiting: AtomicBool::new(false),
@@ -783,9 +861,13 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            activity_status_get,
+            pet_trash_list,
+            pet_trash_restore,
             settings_get,
             settings_patch,
             autostart_set,
+            pet_catalog_get,
             pet_catalog_refresh,
             catalog_status,
             pet_install,
@@ -1087,6 +1169,7 @@ async fn refresh_catalog(app: &tauri::AppHandle) -> Result<PetCatalogV1, String>
         .save_value(&serde_json::to_value(&catalog).map_err(|error| error.to_string())?)
         .map_err(|error| error.to_string())?;
     *state.catalog.write().map_err(|_| "catalog lock poisoned")? = Some(catalog.clone());
+    let _ = app.emit("catalog://updated", &catalog);
     // If the catalog content actually changed and the user hasn't manually
     // refreshed yet, light up the red dot and tell the settings window.
     if old_fingerprint.as_deref() != Some(&new_fingerprint) {
@@ -1149,6 +1232,7 @@ async fn fetch_limited(
 ) -> Result<Vec<u8>, String> {
     let response = client
         .get(url)
+        .timeout(Duration::from_secs(45))
         .send()
         .await
         .map_err(|error| error.to_string())?;
@@ -1197,6 +1281,7 @@ async fn resolve_release_asset_url(
         .get(format!(
             "https://api.github.com/repos/{repository}/releases/tags/{tag}"
         ))
+        .timeout(Duration::from_secs(45))
         .header(reqwest::header::ACCEPT, "application/vnd.github+json")
         .send()
         .await
@@ -1230,6 +1315,7 @@ async fn fetch_release_asset_bytes(
     let url = resolve_release_asset_url(&client, repository, tag, asset_name).await?;
     let response = client
         .get(url)
+        .timeout(Duration::from_secs(45))
         .header(reqwest::header::ACCEPT, "application/octet-stream")
         .send()
         .await
@@ -1310,60 +1396,8 @@ async fn download_pet_package(
     entry: &PetCatalogEntryV1,
 ) -> Result<Vec<u8>, String> {
     let client = app.state::<AppState>().client.clone();
-    match stream_pet_package(app, &client, package_url.clone(), entry, false).await {
-        Ok(bytes) => Ok(bytes),
-        Err(direct_error) => {
-            let Some((repository, tag, asset_name)) = github_release_download_parts(package_url)
-            else {
-                return Err(direct_error);
-            };
-            let api_url = resolve_release_asset_url(&client, &repository, &tag, &asset_name).await;
-            match api_url {
-                Ok(api_url) => stream_pet_package(app, &client, api_url, entry, true)
-                    .await
-                    .map_err(|api_error| {
-                        format!("{direct_error}; API 备用下载也失败：{api_error}")
-                    }),
-                Err(api_error) => Err(format!("{direct_error}; API 备用下载也失败：{api_error}")),
-            }
-        }
-    }
-}
-
-async fn stream_pet_package(
-    app: &tauri::AppHandle,
-    client: &reqwest::Client,
-    url: url::Url,
-    entry: &PetCatalogEntryV1,
-    via_api: bool,
-) -> Result<Vec<u8>, String> {
-    let request = client.get(url);
-    let request = if via_api {
-        request.header(reqwest::header::ACCEPT, "application/octet-stream")
-    } else {
-        request
-    };
-    let response = request.send().await.map_err(|error| error.to_string())?;
-    if !response.status().is_success() {
-        return Err(format!("pet download returned {}", response.status()));
-    }
-    if response
-        .content_length()
-        .is_some_and(|length| length != entry.size_bytes || length > MAX_PET_PACKAGE_BYTES)
-    {
-        return Err("pet download size does not match the catalog".into());
-    }
-    let mut stream = response.bytes_stream();
-    let total = entry.size_bytes;
-    let mut downloaded: u64 = 0;
-    let mut bytes = Vec::with_capacity(entry.size_bytes.min(MAX_PET_PACKAGE_BYTES) as usize);
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|error| error.to_string())?;
-        if bytes.len() + chunk.len() > MAX_PET_PACKAGE_BYTES as usize {
-            return Err("pet package is too large".into());
-        }
-        bytes.extend_from_slice(&chunk);
-        downloaded = downloaded.saturating_add(chunk.len() as u64);
+    let mut bytes = Vec::new();
+    let mut progress = |downloaded, total| {
         let _ = app.emit(
             "pet://install-progress",
             InstallProgressPayload {
@@ -1373,11 +1407,53 @@ async fn stream_pet_package(
                 total,
             },
         );
+    };
+    match pet_download::stream_package(
+        &client,
+        package_url.clone(),
+        entry.size_bytes,
+        false,
+        &mut bytes,
+        &mut progress,
+    )
+    .await
+    {
+        Ok(()) => Ok(bytes),
+        Err(direct_error) => {
+            let Some((repository, tag, asset_name)) = github_release_download_parts(package_url)
+            else {
+                return Err(direct_error);
+            };
+            let api_url = resolve_release_asset_url(&client, &repository, &tag, &asset_name).await;
+            match api_url {
+                Ok(api_url) => {
+                    // Keep the received prefix across fallback attempts. A
+                    // resumed response is checked before any bytes are appended.
+                    let mut last_error = String::new();
+                    for attempt in 0..2 {
+                        if attempt > 0 {
+                            tokio::time::sleep(Duration::from_millis(500)).await;
+                        }
+                        match pet_download::stream_package(
+                            &client,
+                            api_url.clone(),
+                            entry.size_bytes,
+                            true,
+                            &mut bytes,
+                            &mut progress,
+                        )
+                        .await
+                        {
+                            Ok(()) => return Ok(bytes),
+                            Err(error) => last_error = format!("API 备用下载失败：{error}"),
+                        }
+                    }
+                    Err(format!("{direct_error}; {last_error}"))
+                }
+                Err(api_error) => Err(format!("{direct_error}; API 备用下载也失败：{api_error}")),
+            }
+        }
     }
-    if bytes.len() as u64 != entry.size_bytes {
-        return Err("pet download size does not match the catalog".into());
-    }
-    Ok(bytes)
 }
 
 fn install_downloaded_package(

@@ -25,6 +25,30 @@ afterEach(() => {
 });
 
 describe("PetPreview", () => {
+  it("waits for the selected atlas before starting an activity preview", async () => {
+    vi.useFakeTimers();
+    let loaded: (() => void) | undefined;
+    vi.stubGlobal(
+      "Image",
+      class {
+        onload: (() => void) | null = null;
+        set src(_: string) {
+          loaded = () => this.onload?.();
+        }
+      },
+    );
+    render(<PetPreview pet={customPet} displayName="工作室小猫" action="waving" />);
+    act(() => vi.advanceTimersByTime(5000));
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("正在载入预览");
+    act(() => loaded?.());
+    expect(screen.getByRole("img")).toHaveAttribute("data-row", "3");
+    expect(screen.getByRole("img")).toHaveStyle({
+      backgroundImage: "url(D:\\pets\\studio-cat\\spritesheet.webp)",
+    });
+    act(() => vi.advanceTimersByTime(1420));
+    expect(screen.getByRole("img")).toHaveAttribute("data-row", "0");
+  });
   it("stays at 100% and cycles through its non-interactive showcase", () => {
     vi.useFakeTimers();
     render(

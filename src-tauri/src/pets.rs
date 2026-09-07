@@ -145,6 +145,9 @@ pub fn scan_local_pets(root: &Path) -> LocalPetScanV1 {
 
     for entry in folders {
         let folder_name = entry.file_name().to_string_lossy().into_owned();
+        if folder_name == crate::pet_trash::TRASH_FOLDER {
+            continue;
+        }
         let file_type = match entry.file_type() {
             Ok(file_type) => file_type,
             Err(error) => {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AnimationState } from "../domain/animation";
+import { activityDurationMs, type ActivityAction } from "../domain/activities";
 import { BUILT_IN_PETS, petAssetUrl, type PetChangedPayload } from "../lib/tauri";
 import { PetSprite } from "./PetSprite";
 
@@ -14,16 +15,40 @@ type PreviewAppearance = {
   spriteVersionNumber: 1 | 2;
 };
 
-export function PetPreview({ pet, displayName }: { pet: PetChangedPayload; displayName: string }) {
+export function PetPreview({
+  pet,
+  displayName,
+  action,
+}: {
+  pet: PetChangedPayload;
+  displayName: string;
+  action?: ActivityAction | "idle";
+}) {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [appearance, setAppearance] = useState<PreviewAppearance>(DEFAULT_BUILT_IN_APPEARANCE);
+  const [loadedPet, setLoadedPet] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const petKey = `${pet.id}:${pet.version}:${pet.spritesheetPath}:${pet.spriteVersionNumber}`;
+  const ready = loadedPet === petKey;
 
   useEffect(() => {
-    const timer = window.setInterval(() => setElapsedMs((elapsed) => elapsed + 100), 100);
+    if (action === "idle" || (action && !ready)) return;
+    setElapsedMs(0);
+    const start = performance.now();
+    const duration = action ? activityDurationMs(action) : Infinity;
+    const timer = window.setInterval(
+      () => {
+        const elapsed = performance.now() - start;
+        setElapsedMs(elapsed);
+        if (elapsed >= duration) window.clearInterval(timer);
+      },
+      action ? 16 : 100,
+    );
     return () => window.clearInterval(timer);
-  }, []);
+  }, [action, ready]);
 
   useEffect(() => {
+    setLoadError(false);
     if (!pet.spritesheetPath) {
       const builtIn = BUILT_IN_PETS.find((candidate) => candidate.id === pet.id);
       setAppearance(
@@ -31,6 +56,7 @@ export function PetPreview({ pet, displayName }: { pet: PetChangedPayload; displ
           ? { spritesheetUrl: builtIn.spritesheetUrl, spriteVersionNumber: builtIn.spriteVersionNumber }
           : DEFAULT_BUILT_IN_APPEARANCE,
       );
+      setLoadedPet(petKey);
       return;
     }
 
@@ -40,28 +66,41 @@ export function PetPreview({ pet, displayName }: { pet: PetChangedPayload; displ
     image.onload = () => {
       if (active) {
         setAppearance({ spritesheetUrl, spriteVersionNumber: pet.spriteVersionNumber });
+        setLoadedPet(petKey);
       }
     };
-    image.onerror = () => undefined;
+    image.onerror = () => {
+      if (active) setLoadError(true);
+    };
     image.src = spritesheetUrl;
     return () => {
       active = false;
     };
-  }, [pet.id, pet.spriteVersionNumber, pet.spritesheetPath]);
+  }, [pet.id, pet.spriteVersionNumber, pet.spritesheetPath, petKey]);
 
-  const animation = useMemo(() => showcaseAnimation(elapsedMs), [elapsedMs]);
+  const animation = useMemo(() => {
+    if (!action) return showcaseAnimation(elapsedMs);
+    if (action === "idle" || elapsedMs >= activityDurationMs(action)) {
+      return { state: "idle" as const, elapsedMs: 0 };
+    }
+    return { state: action, elapsedMs };
+  }, [action, elapsedMs]);
   const versionLabel = pet.version === "local" ? "local" : `v${pet.version}`;
 
   return (
     <>
       <div className="sprite-stage">
-        <PetSprite
-          state={animation.state}
-          elapsedMs={animation.elapsedMs}
-          scale={1}
-          spritesheetUrl={appearance.spritesheetUrl}
-          spriteVersionNumber={appearance.spriteVersionNumber}
-        />
+        {action && !ready ? (
+          <p role="status">{loadError ? "预览图暂时无法载入" : "正在载入预览…"}</p>
+        ) : (
+          <PetSprite
+            state={animation.state}
+            elapsedMs={animation.elapsedMs}
+            scale={1}
+            spritesheetUrl={appearance.spritesheetUrl}
+            spriteVersionNumber={appearance.spriteVersionNumber}
+          />
+        )}
       </div>
       <div className="pet-identity">
         <strong>
@@ -69,7 +108,7 @@ export function PetPreview({ pet, displayName }: { pet: PetChangedPayload; displ
         </strong>
         <span>
           <i className="status-dot" />
-          动画展示中
+          {action ? "动作预览 · 不影响桌面宠物" : "动画展示中"}
         </span>
       </div>
     </>

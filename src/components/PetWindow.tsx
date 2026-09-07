@@ -41,6 +41,7 @@ export function PetWindow() {
   }>({ state: "idle", startedAt: performance.now() });
   const [elapsedMs, setElapsedMs] = useState(0);
   const [scale, setScale] = useState(1);
+  const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
   const [petAppearance, setPetAppearance] = useState<{
     spritesheetUrl: string;
     spriteVersionNumber: 1 | 2;
@@ -56,6 +57,17 @@ export function PetWindow() {
     state: AnimationState;
     directionDegrees?: number;
   }>({ state: "idle" });
+
+  // Native resizing, DPI rounding and IPC delivery do not complete together.
+  // Fit inside the actual client area even before the saved scale arrives.
+  const fittedScale = Math.max(0, Math.min(scale, (viewport.width - 6) / 192, (viewport.height - 6) / 208));
+
+  useEffect(() => {
+    const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener("resize", resize);
+    resize();
+    return () => window.removeEventListener("resize", resize);
+  }, []);
 
   useEffect(() => {
     let frame = 0;
@@ -74,6 +86,7 @@ export function PetWindow() {
 
   useEffect(() => {
     let cancelled = false;
+    let scaleChanged = false;
     const disposers: Array<() => void> = [];
     const track = (promise: Promise<() => void>) => {
       void promise.then((dispose) => {
@@ -81,9 +94,21 @@ export function PetWindow() {
         else disposers.push(dispose);
       });
     };
-    void settingsGet()
-      .then((settings) => setScale(settings.pet.scale))
-      .catch(() => undefined);
+    track(
+      listenEvent<number>("settings://scale", (value) => {
+        scaleChanged = true;
+        if (!cancelled) setScale(value);
+      }).then((dispose) => {
+        if (!cancelled) {
+          void settingsGet()
+            .then((settings) => {
+              if (!cancelled && !scaleChanged) setScale(settings.pet.scale);
+            })
+            .catch(() => undefined);
+        }
+        return dispose;
+      }),
+    );
     void petCurrent()
       .then((pet) =>
         setPetAppearance({
@@ -142,8 +167,6 @@ export function PetWindow() {
         }),
       ),
     );
-    // Targeted emit from the backend carrying the effective global scale.
-    track(listenEvent<number>("settings://scale", (value) => setScale(value)));
     return () => {
       cancelled = true;
       disposers.forEach((dispose) => dispose());
@@ -260,7 +283,7 @@ export function PetWindow() {
         state={animation.state}
         directionDegrees={animation.directionDegrees}
         elapsedMs={elapsedMs}
-        scale={scale}
+        scale={fittedScale}
         spritesheetUrl={petAppearance.spritesheetUrl}
         spriteVersionNumber={petAppearance.spriteVersionNumber}
       />

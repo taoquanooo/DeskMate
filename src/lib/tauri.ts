@@ -2,6 +2,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { LocalPetScanV1, PetCatalogV1 } from "../domain/pets";
+import type { ActivityStatus } from "../domain/activities";
 import { DEFAULT_SETTINGS, mergeSettings, type PetSelection, type SettingsV1 } from "../domain/settings";
 
 export interface RuntimeAnimationPayload {
@@ -72,6 +73,11 @@ export const BUILT_IN_PETS = [
 
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
 
+export async function activityStatusGet(): Promise<ActivityStatus | null> {
+  if (!isTauri()) return { state: "unavailable" };
+  return invoke("activity_status_get");
+}
+
 export async function settingsGet(): Promise<SettingsV1> {
   if (isTauri()) return mergeSettings(await invoke("settings_get"));
   const stored = window.localStorage.getItem("deskmate.settings.v1");
@@ -98,6 +104,11 @@ export async function petCatalogRefresh(): Promise<PetCatalogV1> {
   return invoke("pet_catalog_refresh");
 }
 
+export async function petCatalogGet(): Promise<PetCatalogV1 | null> {
+  if (!isTauri()) return null;
+  return invoke("pet_catalog_get");
+}
+
 export async function catalogStatus(): Promise<boolean> {
   if (isTauri()) return invoke<boolean>("catalog_status");
   return false;
@@ -109,6 +120,20 @@ export async function petInstall(id: string, version: string) {
 
 export async function petUninstall(id: string, version: string) {
   return invoke("pet_uninstall", { id, version });
+}
+
+export interface TrashedPet {
+  id: string;
+  displayName: string;
+  folderName: string;
+  deletedAt: number;
+}
+export async function petTrashList(): Promise<TrashedPet[]> {
+  if (!isTauri()) return [];
+  return invoke("pet_trash_list");
+}
+export async function petTrashRestore(id: string): Promise<void> {
+  return invoke("pet_trash_restore", { id });
 }
 
 export async function installedPets(): Promise<InstalledPet[]> {

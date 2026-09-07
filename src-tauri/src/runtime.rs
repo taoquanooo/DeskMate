@@ -1,4 +1,5 @@
 use crate::{
+    activities::{ActivityBlockers, ActivityScheduler},
     motion::{clamp_to_work_area, step_toward, DragDirection, DragTracker, Point, WorkArea},
     set_window_flag, window_flag, AppState,
 };
@@ -63,6 +64,10 @@ async fn run_pet_engine(app: &tauri::AppHandle, label: &str) {
     let mut drag_animation = None;
     let mut drag_moved = false;
     let mut was_dragging = false;
+    let mut activities = ActivityScheduler::default();
+    let mut last_activity = None;
+    let mut last_bubble_visible = false;
+    let epoch = Instant::now();
     loop {
         tokio::time::sleep(Duration::from_millis(33)).await;
         let Some(window) = app.get_webview_window(label) else {
@@ -89,7 +94,67 @@ async fn run_pet_engine(app: &tauri::AppHandle, label: &str) {
             last_fullscreen = fullscreen;
             let _ = app.emit("runtime://fullscreen", fullscreen);
         }
-        if state.paused.load(Ordering::Relaxed) || (fullscreen && settings.pet.hide_in_fullscreen) {
+        let hidden =
+            state.paused.load(Ordering::Relaxed) || (fullscreen && settings.pet.hide_in_fullscreen);
+        let dragging = window_flag(&state.dragging, label);
+        let interacting = window_flag(&state.interacting, label);
+        let reduced_motion = reduced_motion_enabled();
+        let bubble_visible = !hidden
+            && app
+                .get_webview_window("bubble")
+                .is_some_and(|bubble| bubble.is_visible().unwrap_or(false));
+        let blockers = ActivityBlockers {
+            paused: state.paused.load(Ordering::Relaxed),
+            fullscreen: fullscreen && settings.pet.hide_in_fullscreen,
+            reduced_motion,
+            dragging,
+            interacting,
+            reminder: bubble_visible,
+        };
+        let now_ms = epoch.elapsed().as_millis() as u64;
+        let moving = settings.pet.roaming_enabled && target.is_some();
+        let activity = activities.tick(
+            now_ms,
+            chrono::Utc::now().timestamp_millis(),
+            &settings.random_activity,
+            &settings.selected_pet,
+            blockers.reason().is_some(),
+            moving,
+            |min, max| rand::rng().random_range(min..=max),
+        );
+        if label == "pet" {
+            let status = activities.status(now_ms, &settings.random_activity, &blockers, moving);
+            let changed = if let Ok(mut previous) = state.activity_status.lock() {
+                if previous.as_ref() != Some(&status) {
+                    *previous = Some(status.clone());
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if changed {
+                let _ = app.emit("runtime://activity-status", status);
+            }
+        }
+        if activity != last_activity || bubble_visible != last_bubble_visible {
+            let _ = app.emit_to(
+                label,
+                "runtime://animation",
+                AnimationPayload {
+                    state: if bubble_visible {
+                        "waiting"
+                    } else {
+                        activity.map_or("idle", |action| action.animation())
+                    },
+                    direction_degrees: None,
+                },
+            );
+        }
+        last_activity = activity;
+        last_bubble_visible = bubble_visible;
+        if hidden {
             set_window_flag(&state.moving, label, false);
             let _ = window.hide();
             if let Some(bubble) = app.get_webview_window("bubble") {
@@ -98,7 +163,6 @@ async fn run_pet_engine(app: &tauri::AppHandle, label: &str) {
             continue;
         }
         let _ = window.show();
-        let dragging = window_flag(&state.dragging, label);
         if dragging {
             set_window_flag(&state.moving, label, false);
             target = None;
@@ -150,11 +214,21 @@ async fn run_pet_engine(app: &tauri::AppHandle, label: &str) {
             let _ = app.emit_to(label, "runtime://drag-ended", ());
             persist_pet_positions(&app);
         }
-        if window_flag(&state.interacting, label) {
+        if bubble_visible {
+            target = None;
             set_window_flag(&state.moving, label, false);
             continue;
         }
-        if !settings.pet.roaming_enabled || reduced_motion_enabled() {
+        if interacting {
+            set_window_flag(&state.moving, label, false);
+            continue;
+        }
+        if activity.is_some() {
+            target = None;
+            set_window_flag(&state.moving, label, false);
+            continue;
+        }
+        if !settings.pet.roaming_enabled || reduced_motion {
             target = None;
             if window_flag(&state.moving, label) {
                 set_window_flag(&state.moving, label, false);

@@ -1,4 +1,5 @@
 import { createDefaultReminders, type Reminder } from "./reminders";
+import { DEFAULT_RANDOM_ACTIVITY, sanitizeRandomActivity, type RandomActivitySettings } from "./activities";
 
 export const MIN_PET_SCALE = 0.1;
 export const MAX_PET_SCALE = 10;
@@ -28,6 +29,7 @@ export interface SettingsV1 {
     clickThrough: boolean;
   };
   reminders: Reminder[];
+  randomActivity: RandomActivitySettings;
   customPetsDir?: string | null;
 }
 
@@ -46,6 +48,7 @@ export const DEFAULT_SETTINGS: SettingsV1 = {
     clickThrough: false,
   },
   reminders: createDefaultReminders(),
+  randomActivity: structuredClone(DEFAULT_RANDOM_ACTIVITY),
   customPetsDir: null,
 };
 
@@ -75,6 +78,7 @@ export function mergeSettings(value: unknown): SettingsV1 {
       hideInFullscreen: booleanOr(pet.hideInFullscreen, defaults.pet.hideInFullscreen),
       clickThrough: booleanOr(pet.clickThrough, defaults.pet.clickThrough),
     },
+    randomActivity: sanitizeRandomActivity(value.randomActivity),
     reminders: Array.isArray(value.reminders)
       ? sanitizeReminders(value.reminders, defaults.reminders)
       : defaults.reminders,

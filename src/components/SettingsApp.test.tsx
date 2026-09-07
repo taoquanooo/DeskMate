@@ -2,13 +2,44 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import { SettingsApp } from "./SettingsApp";
+import pkg from "../../package.json";
+vi.mock("../lib/useActivityStatus", () => ({ useActivityStatus: () => null }));
+vi.mock("./LocalPetTrash", () => ({ LocalPetTrash: () => null }));
 
 describe("SettingsApp", () => {
+  it("uses the package version on the about page", () => {
+    render(<SettingsApp initialSettings={DEFAULT_SETTINGS} />);
+    fireEvent.click(screen.getByRole("button", { name: "关于" }));
+    expect(screen.getByRole("heading", { name: `DeskMate v${pkg.version}` })).toBeInTheDocument();
+  });
+  it("edits custom reminder content without changing its schedule or snooze", () => {
+    const change = vi.fn();
+    render(<SettingsApp initialSettings={DEFAULT_SETTINGS} onSettingsChange={change} />);
+    fireEvent.click(screen.getByRole("button", { name: "活动" }));
+    fireEvent.click(screen.getByRole("button", { name: /添加提醒/ }));
+    fireEvent.click(screen.getByRole("button", { name: "编辑提醒 自定义提醒" }));
+    fireEvent.change(screen.getByLabelText("提醒标题"), { target: { value: "  站起来  " } });
+    fireEvent.change(screen.getByLabelText("提醒内容"), { target: { value: "  走动两分钟  " } });
+    fireEvent.click(screen.getByRole("button", { name: "保存内容" }));
+    expect(change.mock.lastCall?.[0].reminders.at(-1)).toMatchObject({
+      title: "站起来",
+      message: "走动两分钟",
+      schedule: { kind: "interval", minutes: 30 },
+      snoozeMinutes: 5,
+      enabled: true,
+    });
+    expect(screen.getByText("走动两分钟")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "编辑提醒 站起来" }));
+    fireEvent.change(screen.getByLabelText("提醒标题"), { target: { value: " " } });
+    expect(screen.getByRole("button", { name: "保存内容" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(screen.getByText("站起来")).toBeInTheDocument();
+  });
   it("matches the approved desktop settings information architecture", () => {
     render(<SettingsApp initialSettings={DEFAULT_SETTINGS} />);
     expect(screen.getByRole("heading", { name: "桌宠设置" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "桌宠" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "提醒" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "活动" })).toBeInTheDocument();
     expect(screen.getByText("默认伙伴 · v1.0.0")).toBeInTheDocument();
   });
 
@@ -44,14 +75,14 @@ describe("SettingsApp", () => {
 
   it("opens the reminder editor from the navigation", () => {
     render(<SettingsApp initialSettings={DEFAULT_SETTINGS} />);
-    fireEvent.click(screen.getByRole("button", { name: "提醒" }));
-    expect(screen.getByRole("heading", { name: "提醒设置" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "活动" }));
+    expect(screen.getByRole("heading", { name: "定时提醒" })).toBeInTheDocument();
     expect(screen.getByText("看看远处")).toBeInTheDocument();
   });
 
   it("labels a daily reminder with its time purpose", () => {
     render(<SettingsApp initialSettings={DEFAULT_SETTINGS} />);
-    fireEvent.click(screen.getByRole("button", { name: "提醒" }));
+    fireEvent.click(screen.getByRole("button", { name: "活动" }));
     fireEvent.change(screen.getByRole("combobox", { name: "喝口水吧计划类型" }), {
       target: { value: "daily" },
     });
@@ -61,7 +92,7 @@ describe("SettingsApp", () => {
   it("removes a reminder from the list when its delete button is used", () => {
     const onSettingsChange = vi.fn();
     render(<SettingsApp initialSettings={DEFAULT_SETTINGS} onSettingsChange={onSettingsChange} />);
-    fireEvent.click(screen.getByRole("button", { name: "提醒" }));
+    fireEvent.click(screen.getByRole("button", { name: "活动" }));
 
     fireEvent.click(screen.getByRole("button", { name: "删除提醒 喝口水吧" }));
 
