@@ -28,7 +28,7 @@ export function PetPreview({
   const [appearance, setAppearance] = useState<PreviewAppearance>(DEFAULT_BUILT_IN_APPEARANCE);
   const [loadedPet, setLoadedPet] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const petKey = `${pet.id}:${pet.version}:${pet.spritesheetPath}:${pet.spriteVersionNumber}`;
+  const petKey = `${pet.id}:${pet.version}:${pet.spritesheetPath}:${pet.spriteVersionNumber}:${pet.assetRevision}`;
   const ready = loadedPet === petKey;
 
   useEffect(() => {
@@ -61,7 +61,7 @@ export function PetPreview({
     }
 
     let active = true;
-    const spritesheetUrl = petAssetUrl(pet.spritesheetPath);
+    const spritesheetUrl = petAssetUrl(pet.spritesheetPath, pet.id, pet.assetRevision);
     const image = new Image();
     image.onload = () => {
       if (active) {

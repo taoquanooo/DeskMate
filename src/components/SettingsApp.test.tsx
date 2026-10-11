@@ -7,6 +7,52 @@ vi.mock("../lib/useActivityStatus", () => ({ useActivityStatus: () => null }));
 vi.mock("./LocalPetTrash", () => ({ LocalPetTrash: () => null }));
 
 describe("SettingsApp", () => {
+  it("retains unsaved roaming ranges across pages and unrelated settings responses", () => {
+    const change = vi.fn();
+    const view = render(<SettingsApp initialSettings={DEFAULT_SETTINGS} onSettingsChange={change} />);
+    fireEvent.change(screen.getByLabelText("随机行走最短秒数"), { target: { value: "60" } });
+    expect(screen.getByRole("button", { name: "保存漫游时长" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("随机行走最长秒数"), { target: { value: "80" } });
+    fireEvent.click(screen.getByRole("button", { name: "开发宠物" }));
+    expect(screen.getByRole("heading", { name: "开发宠物" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "桌宠" }));
+    view.rerender(
+      <SettingsApp initialSettings={structuredClone(DEFAULT_SETTINGS)} onSettingsChange={change} />,
+    );
+    expect(screen.getByLabelText("随机行走最短秒数")).toHaveValue(60);
+    expect(screen.getByText("未保存")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存漫游时长" }));
+    expect(change.mock.lastCall?.[0].pet.roamingTiming).toEqual({
+      walkMinSeconds: 60,
+      walkMaxSeconds: 80,
+      pauseMinSeconds: 3,
+      pauseMaxSeconds: 10,
+    });
+    expect(screen.queryByText("未保存")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "活动" }));
+    fireEvent.click(screen.getByRole("switch", { name: "活动时暂停漫游" }));
+    expect(change.mock.lastCall?.[0].randomActivity.pauseRoaming).toBe(false);
+  });
+  it("shows update channel switching and progress on the about page", () => {
+    const view = render(
+      <SettingsApp
+        initialSettings={DEFAULT_SETTINGS}
+        updateUi={{ state: "checking", progress: { stage: "switching", source: "mirror", downloaded: 0 } }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "关于" }));
+    expect(screen.getByRole("status")).toHaveTextContent("正在切换备用渠道");
+    view.rerender(
+      <SettingsApp
+        initialSettings={DEFAULT_SETTINGS}
+        updateUi={{
+          state: "checking",
+          progress: { stage: "downloading", source: "mirror", downloaded: 25, total: 100 },
+        }}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("备用渠道下载更新… 25%");
+  });
   it("uses the package version on the about page", () => {
     render(<SettingsApp initialSettings={DEFAULT_SETTINGS} />);
     fireEvent.click(screen.getByRole("button", { name: "关于" }));

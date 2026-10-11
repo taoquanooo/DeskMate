@@ -5,6 +5,7 @@ import { PetSprite } from "./PetSprite";
 export interface PetThumbnailProps {
   displayName: string;
   spritesheetPath?: string | null;
+  assetRevision?: string;
   spriteVersionNumber?: 1 | 2;
   previewUrl?: string;
 }
@@ -17,15 +18,16 @@ type AtlasAppearance = {
 export function PetThumbnail({
   displayName,
   spritesheetPath,
+  assetRevision,
   spriteVersionNumber = 2,
   previewUrl,
 }: PetThumbnailProps) {
   const requestedAtlas = useMemo<AtlasAppearance>(
     () => ({
-      spritesheetUrl: petAssetUrl(spritesheetPath),
+      spritesheetUrl: petAssetUrl(spritesheetPath, undefined, assetRevision),
       spriteVersionNumber,
     }),
-    [spritesheetPath, spriteVersionNumber],
+    [spritesheetPath, spriteVersionNumber, assetRevision],
   );
   const [displayedAtlas, setDisplayedAtlas] = useState(requestedAtlas);
   const [failedAtlasUrl, setFailedAtlasUrl] = useState<string | null>(null);

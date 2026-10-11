@@ -23,8 +23,134 @@ body,
   margin: 0;
 }
 button,
-input {
+input,
+textarea {
   font: inherit;
+}
+[hidden] {
+  display: none !important;
+}
+
+.roaming-timing {
+  padding: 0 0 22px;
+  border-bottom: 1px solid var(--divider);
+}
+.roaming-timing p,
+.pet-import-panel > p,
+.creator-card p {
+  color: #6f6c68;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.roaming-timing fieldset {
+  border: 0;
+  padding: 0;
+  margin: 16px 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.roaming-timing legend {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.roaming-timing label,
+.import-url-form label,
+.creator-prompt-label {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  color: #6f6c68;
+}
+.roaming-timing input,
+.import-url-form input,
+.creator-prompt-label textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  color: #242322;
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  background: white;
+}
+.form-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.roaming-timing small {
+  display: block;
+  margin: 8px 0;
+  color: var(--muted);
+}
+.pet-import-panel,
+.creator-card {
+  margin: 24px 0;
+  padding: 22px;
+  border: 1px solid var(--divider);
+  border-radius: 14px;
+}
+.pet-import-panel h2,
+.creator-card h2 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+.import-url-form {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 18px 0;
+}
+.import-url-form label {
+  flex: 1 1 220px;
+}
+.import-drop-zone {
+  width: 100%;
+  padding: 24px 12px;
+  border: 1px dashed #d8d4ce;
+  border-radius: 10px;
+  color: #6f6c68;
+  background: var(--subtle);
+  cursor: pointer;
+}
+.import-drop-zone:hover:not(:disabled),
+.drop-hover .import-drop-zone {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.pet-import-panel > small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.8;
+  margin-top: 12px;
+}
+.pet-import-panel code,
+.creator-card code {
+  overflow-wrap: anywhere;
+}
+.import-confirm {
+  background: var(--accent-soft);
+  border-radius: 10px;
+  padding: 14px;
+  margin-top: 16px;
+  font-size: 13px;
+}
+.creator-card ol {
+  padding-left: 22px;
+  font-size: 14px;
+}
+.creator-card li + li {
+  margin-top: 18px;
+}
+.creator-prompt-label textarea {
+  resize: vertical;
+  line-height: 1.7;
+  margin-bottom: 12px;
 }
 button {
   color: inherit;

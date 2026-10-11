@@ -34,6 +34,13 @@ jobs:
           targets: x86_64-pc-windows-msvc
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify offline pet creation skill
+        run: |
+          python -m pip install Pillow==12.3.0
+          python -X utf8 scripts/pet-skill.test.py
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - run: cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
       - name: Build unsigned NSIS preview
@@ -42,6 +49,8 @@ jobs:
           # Same catalog URL as the release build so the preview installer can
           # refresh the online pet catalog (with the api.github.com fallback).
           DESKMATE_CATALOG_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/catalog/v1/catalog.json
+          DESKMATE_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+          DESKMATE_UPDATE_MIRROR_BASE_URL: ${{ vars.DESKMATE_UPDATE_MIRROR_BASE_URL }}
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:

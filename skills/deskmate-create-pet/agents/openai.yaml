@@ -1,0 +1,4 @@
+interface:
+  display_name: "DeskMate 宠物制作"
+  short_description: "从角色描述或参考图片制作 DeskMate 动画宠物，校验图集并打包为可导入的 ZIP。"
+  default_prompt: "使用 $deskmate-create-pet 根据我的角色描述制作一只可导入 DeskMate 的动画宠物。"

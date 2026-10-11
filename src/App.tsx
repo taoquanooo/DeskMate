@@ -35,6 +35,7 @@ import {
   type InstalledPet,
   type PetChangedPayload,
   type UpdateStatus,
+  type UpdateProgress,
 } from "./lib/tauri";
 
 type View = "settings" | "pet" | "bubble" | "onboarding";
@@ -145,9 +146,11 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
   useEffect(() => {
     let disposedReady: (() => void) | undefined;
     let disposedError: (() => void) | undefined;
+    let disposedProgress: (() => void) | undefined;
+    let disposedChecked: (() => void) | undefined;
     let cancelled = false;
     void listenEvent<UpdateStatus>("update://ready", (status) => {
-      setUpdateUi({ state: "ready", version: status.version, notes: status.notes });
+      setUpdateUi({ state: "ready", version: status.version, notes: status.notes, source: status.source });
     }).then((dispose) => {
       if (cancelled) dispose();
       else disposedReady = dispose;
@@ -160,10 +163,30 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
       if (cancelled) dispose();
       else disposedError = dispose;
     });
+    void listenEvent<UpdateProgress>("update://progress", (progress) => {
+      if (!cancelled)
+        setUpdateUi((current) =>
+          current.state === "ready" ? current : { state: "checking", progress, source: progress.source },
+        );
+    }).then((dispose) => {
+      if (cancelled) dispose();
+      else disposedProgress = dispose;
+    });
+    void listenEvent<UpdateStatus>("update://checked", (status) => {
+      if (!cancelled && !status.available)
+        setUpdateUi((current) =>
+          current.state === "ready" ? current : { state: "up-to-date", source: status.source },
+        );
+    }).then((dispose) => {
+      if (cancelled) dispose();
+      else disposedChecked = dispose;
+    });
     return () => {
       cancelled = true;
       disposedReady?.();
       disposedError?.();
+      disposedProgress?.();
+      disposedChecked?.();
     };
   }, []);
 
@@ -354,7 +377,12 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
       const status = await updaterCheck();
       if (status.available) {
         if (status.downloaded) {
-          setUpdateUi({ state: "ready", version: status.version, notes: status.notes });
+          setUpdateUi({
+            state: "ready",
+            version: status.version,
+            notes: status.notes,
+            source: status.source,
+          });
         } else {
           // The check itself worked; only the download failed. The periodic
           // check will retry staging it.
@@ -364,7 +392,7 @@ function SettingsWindow({ forceOnboarding }: { forceOnboarding: boolean }) {
           });
         }
       } else {
-        setUpdateUi({ state: "up-to-date" });
+        setUpdateUi({ state: "up-to-date", source: status.source });
       }
     } catch (error) {
       // The full message is composed here so the UI never blames the wrong

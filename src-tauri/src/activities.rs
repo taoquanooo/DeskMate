@@ -136,7 +136,7 @@ impl ActivityScheduler {
             let (min, max) = config.interval_seconds();
             now_ms + choose(u64::from(min) * 1000, u64::from(max) * 1000)
         });
-        if now_ms < due_at || moving {
+        if now_ms < due_at || (moving && !config.pause_roaming) {
             return None;
         }
         let candidates: Vec<_> = config
@@ -161,7 +161,10 @@ mod tests {
     #[test]
     fn status_tracks_real_deadlines_and_priority_reasons() {
         let mut s = ActivityScheduler::default();
-        let c = config();
+        let c = RandomActivitySettings {
+            pause_roaming: false,
+            ..config()
+        };
         let clear = ActivityBlockers::default();
         tick(&mut s, 0, &c, false, false);
         assert_eq!(s.status(1, &c, &clear, false).remaining_seconds, Some(1));
@@ -278,11 +281,25 @@ mod tests {
     #[test]
     fn movement_defers_start_and_disabled_roaming_does_not_block() {
         let mut s = ActivityScheduler::default();
-        let c = config();
+        let c = RandomActivitySettings {
+            pause_roaming: false,
+            ..config()
+        };
         tick(&mut s, 0, &c, false, true);
         assert_eq!(tick(&mut s, 1000, &c, false, true), None);
         assert_eq!(
             tick(&mut s, 1100, &c, false, false),
+            Some(ActivityAction::Waving)
+        );
+    }
+    #[test]
+    fn due_activity_can_interrupt_walking_when_enabled() {
+        let mut scheduler = ActivityScheduler::default();
+        let c = config();
+        assert!(c.pause_roaming);
+        tick(&mut scheduler, 0, &c, false, true);
+        assert_eq!(
+            tick(&mut scheduler, 1000, &c, false, true),
             Some(ActivityAction::Waving)
         );
     }

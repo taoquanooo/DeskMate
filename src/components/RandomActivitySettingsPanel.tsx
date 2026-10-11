@@ -56,6 +56,22 @@ export function RandomActivitySettingsPanel({
       <p className="activity-runtime-status" aria-label="随机活动运行状态">
         {statusLabel}
       </p>
+      <div className="setting-row">
+        <span>
+          <strong>活动时暂停漫游</strong>
+          <small>开启后动作到期立即停下，结束后继续漫游；关闭后等待自然停留。</small>
+        </span>
+        <button
+          type="button"
+          role="switch"
+          aria-label="活动时暂停漫游"
+          aria-checked={value.pauseRoaming}
+          className={`switch ${value.pauseRoaming ? "checked" : ""}`}
+          onClick={() => patch({ pauseRoaming: !value.pauseRoaming })}
+        >
+          <span />
+        </button>
+      </div>
       <label className="activity-frequency">
         <strong>活动频率</strong>
         <select

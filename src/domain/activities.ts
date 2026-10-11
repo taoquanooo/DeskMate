@@ -60,6 +60,7 @@ export function activityStatusText(settings: RandomActivitySettings, status: Act
 }
 export interface RandomActivitySettings {
   enabled: boolean;
+  pauseRoaming: boolean;
   frequency: ActivityFrequency;
   customMinSeconds: number;
   customMaxSeconds: number;
@@ -68,6 +69,7 @@ export interface RandomActivitySettings {
 
 export const DEFAULT_RANDOM_ACTIVITY: RandomActivitySettings = {
   enabled: false,
+  pauseRoaming: true,
   frequency: "normal",
   customMinSeconds: 30,
   customMaxSeconds: 90,
@@ -91,6 +93,7 @@ export function sanitizeRandomActivity(value: unknown): RandomActivitySettings {
   const validRange = typeof min === "number" && typeof max === "number" && validActivityRange(min, max);
   return {
     enabled: typeof input.enabled === "boolean" ? input.enabled : fallback.enabled,
+    pauseRoaming: typeof input.pauseRoaming === "boolean" ? input.pauseRoaming : fallback.pauseRoaming,
     frequency: ["quiet", "normal", "active", "custom"].includes(input.frequency as string)
       ? (input.frequency as ActivityFrequency)
       : fallback.frequency,

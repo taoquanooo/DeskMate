@@ -1,5 +1,6 @@
 import { createDefaultReminders, type Reminder } from "./reminders";
 import { DEFAULT_RANDOM_ACTIVITY, sanitizeRandomActivity, type RandomActivitySettings } from "./activities";
+import { DEFAULT_ROAMING_TIMING, sanitizeRoamingTiming, type RoamingTiming } from "./roaming";
 
 export const MIN_PET_SCALE = 0.1;
 export const MAX_PET_SCALE = 10;
@@ -24,6 +25,7 @@ export interface SettingsV1 {
     scale: number;
     speed: number;
     roamingEnabled: boolean;
+    roamingTiming: RoamingTiming;
     alwaysOnTop: boolean;
     hideInFullscreen: boolean;
     clickThrough: boolean;
@@ -43,6 +45,7 @@ export const DEFAULT_SETTINGS: SettingsV1 = {
     scale: 1,
     speed: 80,
     roamingEnabled: true,
+    roamingTiming: { ...DEFAULT_ROAMING_TIMING },
     alwaysOnTop: true,
     hideInFullscreen: true,
     clickThrough: false,
@@ -74,6 +77,7 @@ export function mergeSettings(value: unknown): SettingsV1 {
       scale: clamp(numberOr(pet.scale, defaults.pet.scale), MIN_PET_SCALE, MAX_PET_SCALE),
       speed: clamp(numberOr(pet.speed, defaults.pet.speed), 40, 140),
       roamingEnabled: booleanOr(pet.roamingEnabled, defaults.pet.roamingEnabled),
+      roamingTiming: sanitizeRoamingTiming(pet.roamingTiming),
       alwaysOnTop: booleanOr(pet.alwaysOnTop, defaults.pet.alwaysOnTop),
       hideInFullscreen: booleanOr(pet.hideInFullscreen, defaults.pet.hideInFullscreen),
       clickThrough: booleanOr(pet.clickThrough, defaults.pet.clickThrough),

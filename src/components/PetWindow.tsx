@@ -112,7 +112,7 @@ export function PetWindow() {
     void petCurrent()
       .then((pet) =>
         setPetAppearance({
-          spritesheetUrl: petAssetUrl(pet.spritesheetPath, pet.id),
+          spritesheetUrl: petAssetUrl(pet.spritesheetPath, pet.id, pet.assetRevision),
           spriteVersionNumber: pet.spriteVersionNumber,
         }),
       )
@@ -162,7 +162,7 @@ export function PetWindow() {
     track(
       listenEvent<PetChangedPayload>("pet://changed", (payload) =>
         setPetAppearance({
-          spritesheetUrl: petAssetUrl(payload.spritesheetPath, payload.id),
+          spritesheetUrl: petAssetUrl(payload.spritesheetPath, payload.id, payload.assetRevision),
           spriteVersionNumber: payload.spriteVersionNumber,
         }),
       ),

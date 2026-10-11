@@ -7,7 +7,7 @@ const tauriMocks = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/api/core", () => tauriMocks);
 
-import { petAssetUrl } from "./tauri";
+import { petAssetUrl, updateProgressText } from "./tauri";
 
 describe("petAssetUrl", () => {
   beforeEach(() => {
@@ -27,5 +27,18 @@ describe("petAssetUrl", () => {
       "asset://C:\\pets\\downloaded\\spritesheet.webp",
     );
     expect(tauriMocks.convertFileSrc).toHaveBeenCalledWith("C:\\pets\\downloaded\\spritesheet.webp");
+  });
+  it("changes the local asset URL after replacing a pet at the same path", () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    const path = "C:/pets/bear/spritesheet.webp";
+    expect(petAssetUrl(path, "bear", "revision-2")).not.toBe(petAssetUrl(path, "bear", "revision-1"));
+  });
+  it("shows progress when download length is unknown and during signature verification", () => {
+    expect(updateProgressText({ stage: "downloading", source: "github", downloaded: 1024 * 1024 })).toContain(
+      "1.0 MiB",
+    );
+    expect(updateProgressText({ stage: "verifying", source: "mirror", downloaded: 0 })).toContain(
+      "备用渠道安装包签名",
+    );
   });
 });

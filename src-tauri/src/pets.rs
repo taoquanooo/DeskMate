@@ -90,6 +90,7 @@ pub struct LocalPetV1 {
     pub folder_name: String,
     pub sprite_version_number: u8,
     pub spritesheet_path: PathBuf,
+    pub asset_revision: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -148,6 +149,9 @@ pub fn scan_local_pets(root: &Path) -> LocalPetScanV1 {
         if folder_name == crate::pet_trash::TRASH_FOLDER {
             continue;
         }
+        if folder_name == crate::pet_import::STAGING_FOLDER {
+            continue;
+        }
         let file_type = match entry.file_type() {
             Ok(file_type) => file_type,
             Err(error) => {
@@ -185,6 +189,7 @@ pub fn scan_local_pets(root: &Path) -> LocalPetScanV1 {
             description: manifest.description,
             folder_name,
             sprite_version_number: manifest.sprite_version_number,
+            asset_revision: asset_revision(&entry.path().join("spritesheet.webp")),
             spritesheet_path: entry.path().join("spritesheet.webp"),
         });
     }
@@ -212,7 +217,7 @@ pub fn load_pet_directory(directory: &Path) -> Result<(ValidatedLocalPet, PathBu
     Ok((manifest, directory.join("spritesheet.webp")))
 }
 
-fn validate_local_pet_directory(directory: &Path) -> Result<ValidatedLocalPet, String> {
+pub(crate) fn validate_local_pet_directory(directory: &Path) -> Result<ValidatedLocalPet, String> {
     let manifest_path = directory.join("pet.json");
     let spritesheet_path = directory.join("spritesheet.webp");
     let manifest_bytes = read_regular_local_file(&manifest_path, MAX_LOCAL_MANIFEST_BYTES)
@@ -242,6 +247,20 @@ fn validate_local_pet_directory(directory: &Path) -> Result<ValidatedLocalPet, S
         description: manifest.description,
         sprite_version_number,
     })
+}
+
+pub(crate) fn asset_revision(path: &Path) -> String {
+    fs_modified(path).unwrap_or_default().to_string()
+}
+
+fn fs_modified(path: &Path) -> Option<u128> {
+    std::fs::metadata(path)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|time| time.as_nanos())
 }
 
 fn read_regular_local_file(path: &Path, maximum_bytes: u64) -> Result<Vec<u8>, String> {

@@ -36,6 +36,7 @@ jobs:
           DESKMATE_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_SIGNING_PUBLIC_KEY }}
           DESKMATE_CATALOG_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/catalog/v1/catalog.json
           DESKMATE_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+          DESKMATE_UPDATE_MIRROR_BASE_URL: ${{ vars.DESKMATE_UPDATE_MIRROR_BASE_URL }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: DeskMate ${{ github.ref_name }}
@@ -51,3 +52,19 @@ jobs:
           uploadUpdaterSignatures: true
           args: --target x86_64-pc-windows-msvc --bundles nsis
           releaseAssetNamePattern: DeskMate_[version]_x64[setup].[ext]
+      - name: Generate object storage update files
+        if: ${{ vars.DESKMATE_UPDATE_MIRROR_BASE_URL != '' }}
+        shell: pwsh
+        env:
+          DESKMATE_UPDATE_MIRROR_BASE_URL: ${{ vars.DESKMATE_UPDATE_MIRROR_BASE_URL }}
+        run: |
+          $releaseVersion = (Get-Content package.json | ConvertFrom-Json).version
+          node scripts/build-update-mirror.mjs src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis output/update-mirror "$env:DESKMATE_UPDATE_MIRROR_BASE_URL" "$releaseVersion"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload object storage update files
+        if: ${{ vars.DESKMATE_UPDATE_MIRROR_BASE_URL != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeskMate-Update-Mirror
+          path: output/update-mirror/
+          if-no-files-found: error

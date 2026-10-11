@@ -22,6 +22,26 @@ export interface UpdateStatus {
   downloaded?: boolean;
   version?: string;
   notes?: string;
+  source?: "github" | "mirror";
+}
+
+export interface UpdateProgress {
+  stage: "checking" | "switching" | "downloading" | "verifying";
+  source: "github" | "mirror";
+  downloaded: number;
+  total?: number | null;
+}
+
+export function updateProgressText(progress?: UpdateProgress): string {
+  if (!progress) return "正在检查更新…";
+  const source = progress.source === "mirror" ? "备用渠道" : "GitHub";
+  if (progress.stage === "switching") return "正在切换备用渠道…";
+  if (progress.stage === "checking") return `正在通过${source}检查更新…`;
+  if (progress.stage === "verifying") return `正在验证${source}安装包签名…`;
+  const amount = progress.total
+    ? `${Math.min(100, Math.round((progress.downloaded / progress.total) * 100))}%`
+    : `${(progress.downloaded / 1024 / 1024).toFixed(1)} MiB`;
+  return `正在从${source}下载更新… ${amount}`;
 }
 
 export interface PetChangedPayload {
@@ -29,6 +49,7 @@ export interface PetChangedPayload {
   version: string;
   spriteVersionNumber: 1 | 2;
   spritesheetPath?: string | null;
+  assetRevision?: string | null;
 }
 
 export interface InstalledPet {
@@ -162,6 +183,47 @@ export async function petLocalFolderOpen() {
   if (isTauri()) await invoke("pet_local_folder_open");
 }
 
+export type ImportSource = { kind: "url"; url: string } | { kind: "file"; path: string };
+export interface ImportProgress {
+  taskId: string;
+  stage: "downloading" | "validating";
+  downloaded: number;
+  total?: number | null;
+}
+export interface ImportPreview {
+  token: string;
+  id: string;
+  displayName: string;
+  conflict?: string | null;
+}
+export async function petImportPrepare(taskId: string, source: ImportSource): Promise<ImportPreview> {
+  if (!isTauri()) throw new Error("请在 DeskMate 桌面应用中安装宠物");
+  return invoke("pet_import_prepare", { taskId, source });
+}
+export async function petImportCommit(token: string, replaceExisting: boolean): Promise<string> {
+  return invoke("pet_import_commit", { token, replaceExisting });
+}
+export async function petImportCancel(token: string): Promise<void> {
+  if (isTauri()) await invoke("pet_import_cancel", { token });
+}
+export async function petImportPick(): Promise<string | null> {
+  return isTauri() ? invoke("pet_import_pick") : null;
+}
+export async function petSkillExport(): Promise<string | null> {
+  if (!isTauri()) throw new Error("请在 DeskMate 桌面应用中下载 skill");
+  return invoke("pet_skill_export");
+}
+export async function listenFileDrop(
+  onDrop: (paths: string[]) => void,
+  onHover: (hovering: boolean) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri()) return () => undefined;
+  return getCurrentWindow().onDragDropEvent(({ payload }) => {
+    onHover(payload.type === "enter" || payload.type === "over");
+    if (payload.type === "drop") onDrop(payload.paths);
+  });
+}
+
 export async function customPetsDirPick(): Promise<string | null> {
   if (!isTauri()) return null;
   return invoke<string | null>("custom_pets_dir_pick");
@@ -264,11 +326,13 @@ export async function hideCurrentWindow() {
   if (isTauri()) await getCurrentWindow().hide();
 }
 
-export function petAssetUrl(path?: string | null, builtInId?: string) {
+export function petAssetUrl(path?: string | null, builtInId?: string, revision?: string | null) {
   if (path?.startsWith("/pets/")) return path;
   if (!path)
     return (
       BUILT_IN_PETS.find((pet) => pet.id === builtInId)?.spritesheetUrl ?? BUILT_IN_PETS[0].spritesheetUrl
     );
-  return path && isTauri() ? convertFileSrc(path) : "/pets/yanghao/spritesheet.webp";
+  return path && isTauri()
+    ? convertFileSrc(path) + (revision ? `?v=${encodeURIComponent(revision)}` : "")
+    : "/pets/yanghao/spritesheet.webp";
 }

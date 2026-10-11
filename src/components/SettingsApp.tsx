@@ -27,6 +27,8 @@ import {
   type InstallProgress,
   type InstalledPet,
   type PetChangedPayload,
+  type UpdateProgress,
+  updateProgressText,
 } from "../lib/tauri";
 import { PetPreview } from "./PetPreview";
 import { PetSizeSetting } from "./PetSizeSetting";
@@ -35,15 +37,20 @@ import { RandomActivitySettingsPanel } from "./RandomActivitySettingsPanel";
 import { activityStatusText } from "../domain/activities";
 import { useActivityStatus } from "../lib/useActivityStatus";
 import { LocalPetTrash } from "./LocalPetTrash";
+import { RoamingTimingSettings, roamingDraft } from "./RoamingTimingSettings";
+import { PetCreator } from "./PetCreator";
+import { PetImportPanel } from "./PetImportPanel";
 
 export type UpdateUi = {
   state: "idle" | "checking" | "up-to-date" | "ready" | "error";
   version?: string;
   notes?: string;
   error?: string;
+  source?: "github" | "mirror";
+  progress?: UpdateProgress;
 };
 
-type Section = "pet" | "reminders" | "library" | "about";
+type Section = "pet" | "reminders" | "library" | "creator" | "about";
 
 export interface SettingsAppProps {
   initialSettings: SettingsV1;
@@ -80,6 +87,7 @@ const NAV: Array<{ id: Section; label: string; icon: typeof PawPrint }> = [
   { id: "pet", label: "桌宠", icon: PawPrint },
   { id: "reminders", label: "活动", icon: Bell },
   { id: "library", label: "宠物库", icon: Box },
+  { id: "creator", label: "开发宠物", icon: PawPrint },
   { id: "about", label: "关于", icon: CircleHelp },
 ];
 
@@ -117,6 +125,16 @@ export function SettingsApp({
   const activityStatus = useActivityStatus();
   const activityStatusLabel = activityStatusText(settings.randomActivity, activityStatus);
   const [section, setSection] = useState<Section>("pet");
+  const [roamDraft, setRoamDraft] = useState(() => roamingDraft(initialSettings.pet.roamingTiming));
+  useEffect(
+    () => setRoamDraft(roamingDraft(settings.pet.roamingTiming)),
+    [
+      settings.pet.roamingTiming.walkMinSeconds,
+      settings.pet.roamingTiming.walkMaxSeconds,
+      settings.pet.roamingTiming.pauseMinSeconds,
+      settings.pet.roamingTiming.pauseMaxSeconds,
+    ],
+  );
   const [activityIntervalDraft, setActivityIntervalDraft] = useState({
     min: String(initialSettings.randomActivity.customMinSeconds),
     max: String(initialSettings.randomActivity.customMaxSeconds),
@@ -180,8 +198,15 @@ export function SettingsApp({
             className="sidebar-check-update"
             onClick={onCheckUpdates}
             disabled={updateUi?.state === "checking"}
+            title={updateUi?.state === "checking" ? updateProgressText(updateUi.progress) : undefined}
           >
-            {updateUi?.state === "checking" ? "检查中…" : "检查更新"}
+            {updateUi?.state === "checking"
+              ? updateUi.progress?.stage === "downloading"
+                ? "下载中…"
+                : updateUi.progress?.source === "mirror"
+                  ? "备用渠道…"
+                  : "检查中…"
+              : "检查更新"}
           </button>
         </div>
       </aside>
@@ -204,6 +229,8 @@ export function SettingsApp({
             currentPet={currentPet}
             localPets={localPets}
             catalog={catalog}
+            roamDraft={roamDraft}
+            onRoamDraftChange={setRoamDraft}
           />
         )}
         {section === "reminders" && (
@@ -237,6 +264,15 @@ export function SettingsApp({
             />
           </>
         )}
+        {section === "library" && <PageHeader title="宠物库" subtitle="选择官方宠物，或安装自己的伙伴。" />}
+        <div hidden={section !== "library"}>
+          <PetImportPanel
+            active={section === "library"}
+            folderPath={localPetFolder}
+            onImported={() => onLocalPetRefresh?.()}
+            onUse={(id) => onPetToggle?.(id, "local")}
+          />
+        </div>
         {section === "library" && (
           <PetLibrary
             catalog={catalog}
@@ -259,6 +295,7 @@ export function SettingsApp({
             onOpenPetDex={onOpenPetDex}
           />
         )}
+        {section === "creator" && <PetCreator onOpenLibrary={() => setSection("library")} />}
         {section === "about" && (
           <About
             settings={settings}
@@ -293,6 +330,8 @@ function PetSettings({
   currentPet,
   localPets,
   catalog,
+  roamDraft,
+  onRoamDraftChange,
 }: {
   settings: SettingsV1;
   activityStatusLabel: string;
@@ -302,6 +341,8 @@ function PetSettings({
   currentPet?: PetChangedPayload | null;
   localPets: LocalPetV1[];
   catalog?: PetCatalogV1 | null;
+  roamDraft: ReturnType<typeof roamingDraft>;
+  onRoamDraftChange: (value: ReturnType<typeof roamingDraft>) => void;
 }) {
   const previewPet: PetChangedPayload = currentPet ?? {
     id: settings.selectedPet.id,
@@ -348,6 +389,12 @@ function PetSettings({
             description="在各个屏幕的可用区域里自由走动"
             checked={settings.pet.roamingEnabled}
             onChange={(value) => patchPet({ roamingEnabled: value })}
+          />
+          <RoamingTimingSettings
+            value={settings.pet.roamingTiming}
+            draft={roamDraft}
+            onDraftChange={onRoamDraftChange}
+            onSave={(roamingTiming) => patchPet({ roamingTiming })}
           />
           <ToggleSetting
             label="随机活动"
@@ -635,7 +682,6 @@ function PetLibrary({
   };
   return (
     <>
-      <PageHeader title="宠物库" subtitle="选择官方宠物，或从本机文件夹导入自己的伙伴。" />
       <aside className="pet-gallery-recommendation" aria-label="推荐宠物库">
         <div>
           <strong>推荐：Codex Pet Gallery</strong>
@@ -701,6 +747,7 @@ function PetLibrary({
           <PetThumbnail
             displayName={pet.displayName}
             spritesheetPath={pet.spritesheetPath}
+            assetRevision={pet.assetRevision}
             spriteVersionNumber={pet.spriteVersionNumber}
           />
           <div className="pet-library-copy">
@@ -886,8 +933,13 @@ function About({
       </div>
       <p className="about-update-source">
         <Github size={13} />
-        更新来自 GitHub，检查或下载更新可能需要科学上网。
+        {updateUi?.source === "mirror" ? "当前更新来源：备用渠道。" : "当前更新来源：GitHub。"}
       </p>
+      {updateState === "checking" && (
+        <p className="about-update-status" role="status">
+          {updateProgressText(updateUi?.progress)}
+        </p>
+      )}
       {updateState === "up-to-date" && (
         <p className="about-update-status" role="status">
           已是最新版本。

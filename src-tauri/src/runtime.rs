@@ -58,7 +58,7 @@ pub fn ensure_motion_engine(app: &tauri::AppHandle, label: &str) {
 
 async fn run_pet_engine(app: &tauri::AppHandle, label: &str) {
     let mut target: Option<Point> = None;
-    let mut idle_until: Option<Instant> = None;
+    let mut roaming = crate::roaming::RoamingScheduler::default();
     let mut last_fullscreen = false;
     let mut drag_tracker = DragTracker::default();
     let mut drag_animation = None;
@@ -112,10 +112,27 @@ async fn run_pet_engine(app: &tauri::AppHandle, label: &str) {
             reminder: bubble_visible,
         };
         let now_ms = epoch.elapsed().as_millis() as u64;
-        let moving = settings.pet.roaming_enabled && target.is_some();
+        let wall_ms = chrono::Utc::now().timestamp_millis();
+        let arrived = target.is_some_and(|to| {
+            window
+                .outer_position()
+                .is_ok_and(|from| (to.x - from.x as f64).hypot(to.y - from.y as f64) < 2.0)
+        });
+        let roam_now = roaming.tick(
+            now_ms,
+            wall_ms,
+            &settings.pet.roaming_timing,
+            !settings.pet.roaming_enabled || blockers.reason().is_some() || last_activity.is_some(),
+            arrived,
+            |min, max| rand::rng().random_range(min..=max),
+        );
+        if !roam_now {
+            target = None;
+        }
+        let moving = roam_now && target.is_some();
         let activity = activities.tick(
             now_ms,
-            chrono::Utc::now().timestamp_millis(),
+            wall_ms,
             &settings.random_activity,
             &settings.selected_pet,
             blockers.reason().is_some(),
@@ -228,7 +245,7 @@ async fn run_pet_engine(app: &tauri::AppHandle, label: &str) {
             set_window_flag(&state.moving, label, false);
             continue;
         }
-        if !settings.pet.roaming_enabled || reduced_motion {
+        if !roam_now {
             target = None;
             if window_flag(&state.moving, label) {
                 set_window_flag(&state.moving, label, false);
@@ -253,27 +270,7 @@ async fn run_pet_engine(app: &tauri::AppHandle, label: &str) {
             x: position.x as f64,
             y: position.y as f64,
         };
-        if target.is_some_and(|to| (to.x - from.x).hypot(to.y - from.y) < 2.0) {
-            target = None;
-            set_window_flag(&state.moving, label, false);
-            idle_until =
-                Some(Instant::now() + Duration::from_secs(rand::rng().random_range(2_u64..=6_u64)));
-            let _ = app.emit_to(
-                label,
-                "runtime://animation",
-                AnimationPayload {
-                    state: "idle",
-                    direction_degrees: None,
-                },
-            );
-            continue;
-        }
-        if idle_until.is_some_and(|until| Instant::now() < until) {
-            set_window_flag(&state.moving, label, false);
-            continue;
-        }
         if target.is_none() {
-            idle_until = None;
             let areas = work_areas();
             if areas.is_empty() {
                 continue;

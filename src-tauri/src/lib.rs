@@ -2,11 +2,15 @@ mod activities;
 mod motion;
 mod pet_asset_scope;
 mod pet_download;
+mod pet_import;
+mod pet_skill;
 mod pet_trash;
 mod pets;
 mod reminders;
+mod roaming;
 mod runtime;
 mod settings;
+mod updates;
 
 use futures_util::StreamExt;
 use pet_download::MAX_PET_PACKAGE_BYTES;
@@ -24,7 +28,6 @@ use std::{
 };
 use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_autostart::ManagerExt as AutostartExt;
-use tauri_plugin_updater::UpdaterExt;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAX_CATALOG_BYTES: usize = 2 * 1024 * 1024;
@@ -74,7 +77,9 @@ pub struct AppState {
     pet_engines: Mutex<HashSet<String>>,
     activity_status: Mutex<Option<activities::ActivityStatus>>,
     ready_update: Mutex<Option<ReadyUpdate>>,
+    update_gate: updates::CheckGate,
     install_lock: tokio::sync::Mutex<()>,
+    imports: Mutex<HashMap<String, pet_import::PreparedImport>>,
     // Set to true when a background check discovers that the remote pet catalog
     // is newer than what the user last acknowledged. The settings UI reads this
     // to show a red-dot badge on the refresh button.
@@ -137,7 +142,7 @@ struct ReadyUpdate {
     bytes: Vec<u8>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateStatus {
     available: bool,
@@ -148,6 +153,7 @@ struct UpdateStatus {
     version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     notes: Option<String>,
+    source: Option<updates::Source>,
 }
 
 #[derive(Clone, Serialize)]
@@ -158,6 +164,8 @@ struct PetChangedPayload {
     sprite_version_number: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
     spritesheet_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    asset_revision: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -531,6 +539,174 @@ async fn pet_local_refresh(app: tauri::AppHandle) -> LocalPetScanV1 {
 }
 
 #[tauri::command]
+async fn pet_import_pick() -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        rfd::FileDialog::new()
+            .set_title("选择宠物 ZIP")
+            .add_filter("宠物 ZIP", &["zip"])
+            .pick_file()
+            .map(|path| path.display().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn pet_skill_export() -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("保存宠物制作 skill")
+            .set_file_name("deskmate-create-pet.zip")
+            .add_filter("ZIP", &["zip"])
+            .save_file()
+        else {
+            return Ok(None);
+        };
+        pet_skill::export(&path)?;
+        Ok(Some(path.display().to_string()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn pet_import_prepare(
+    app: tauri::AppHandle,
+    task_id: String,
+    source: pet_import::ImportSource,
+) -> Result<pet_import::ImportPreview, String> {
+    if task_id.is_empty()
+        || task_id.len() > 64
+        || !task_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return Err("安装任务无效".into());
+    }
+    let (token, root, staging) = pet_import::new_staging(&custom_pets_root(&app))?;
+    let mut prepared = pet_import::PreparedImport {
+        root,
+        staging,
+        pet: pets::ValidatedLocalPet {
+            id: String::new(),
+            display_name: String::new(),
+            description: String::new(),
+            sprite_version_number: 2,
+        },
+    };
+    let report = |stage, downloaded, total| {
+        let _ = app.emit(
+            "pet://import-progress",
+            pet_import::ImportProgress {
+                task_id: task_id.clone(),
+                stage,
+                downloaded,
+                total,
+            },
+        );
+    };
+    match source {
+        pet_import::ImportSource::Url { url } => {
+            report("downloading", 0, None);
+            let bytes = pet_import::download(&url, &mut |received, total| {
+                report("downloading", received, total)
+            })
+            .await?;
+            std::fs::write(prepared.staging.join("package.zip"), bytes)
+                .map_err(|e| e.to_string())?;
+        }
+        pet_import::ImportSource::File { path } => {
+            let path = PathBuf::from(path);
+            let meta = std::fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+            if !meta.is_file()
+                || meta.file_type().is_symlink()
+                || meta.len() > MAX_PET_PACKAGE_BYTES
+            {
+                return Err("请选择不超过 25 MiB 的普通 ZIP 文件".into());
+            }
+            std::fs::copy(path, prepared.staging.join("package.zip")).map_err(|e| e.to_string())?;
+        }
+    }
+    report("validating", 0, None);
+    prepared = tauri::async_runtime::spawn_blocking(move || {
+        prepared.pet = pet_import::extract_custom_zip(
+            &prepared.staging.join("package.zip"),
+            &prepared.staging.join("pet"),
+        )?;
+        Ok::<_, String>(prepared)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let existing = pet_import::conflict(&prepared.root, &prepared.pet.id)?;
+    let preview = pet_import::ImportPreview {
+        token: token.clone(),
+        id: prepared.pet.id.clone(),
+        display_name: prepared.pet.display_name.clone(),
+        conflict: existing.map(|pet| pet.display_name),
+    };
+    let state = app.state::<AppState>();
+    let mut imports = state.imports.lock().map_err(|_| "安装任务不可用")?;
+    if imports.len() >= 16 {
+        return Err("待确认安装过多，请先完成或取消已有任务".into());
+    }
+    imports.insert(token, prepared);
+    Ok(preview)
+}
+
+#[tauri::command]
+fn pet_import_cancel(app: tauri::AppHandle, token: String) -> Result<(), String> {
+    app.state::<AppState>()
+        .imports
+        .lock()
+        .map_err(|_| "安装任务不可用")?
+        .remove(&token);
+    Ok(())
+}
+
+#[tauri::command]
+async fn pet_import_commit(
+    app: tauri::AppHandle,
+    token: String,
+    replace_existing: bool,
+) -> Result<String, String> {
+    let state = app.state::<AppState>();
+    let _install = state.install_lock.lock().await;
+    let prepared = state
+        .imports
+        .lock()
+        .map_err(|_| "安装任务不可用")?
+        .remove(&token)
+        .ok_or("安装任务已失效，请重新导入")?;
+    if custom_pets_root(&app)
+        .canonicalize()
+        .map_err(|e| e.to_string())?
+        != prepared.root
+    {
+        return Err("自定义文件夹已改变，请重新导入".into());
+    }
+    let id = tauri::async_runtime::spawn_blocking(move || {
+        pets::validate_local_pet_directory(&prepared.staging.join("pet"))?;
+        pet_import::commit(&prepared, replace_existing)?;
+        Ok::<_, String>(prepared.pet.id.clone())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let scan = pet_local_refresh(app.clone()).await;
+    let _ = app.emit("pet://imported", &scan);
+    let selected = state
+        .settings
+        .lock()
+        .map_err(|_| "settings lock poisoned")?
+        .selected_pet
+        .clone();
+    if selected.id == id && selected.version == "local" {
+        let payload = pet_current(app.clone()).await;
+        let _ = app.emit("pet://changed", payload);
+    }
+    Ok(id)
+}
+
+#[tauri::command]
 fn pet_local_folder_open(app: tauri::AppHandle) -> Result<(), String> {
     let root = custom_pets_root(&app);
     std::fs::create_dir_all(&root).map_err(|error| error.to_string())?;
@@ -556,6 +732,7 @@ async fn custom_pets_dir_pick(app: tauri::AppHandle) -> Result<Option<String>, S
     std::fs::create_dir_all(&path).map_err(|error| format!("无法创建文件夹：{error}"))?;
     let path_string = path.display().to_string();
     let state = app.state::<AppState>();
+    let _install = state.install_lock.lock().await;
     {
         let mut settings = state
             .settings
@@ -581,6 +758,7 @@ async fn pet_current(app: tauri::AppHandle) -> PetChangedPayload {
         version: "1.0.0".into(),
         sprite_version_number: 2,
         spritesheet_path: None,
+        asset_revision: None,
     };
     // The pet window's frontend invokes `pet_current` on mount, which can race
     // ahead of `app.manage(AppState)`. Returning the default pet in that case
@@ -765,7 +943,9 @@ pub fn run() {
                 moving: Mutex::new(HashMap::new()),
                 pet_engines: Mutex::new(HashSet::new()),
                 ready_update: Mutex::new(None),
+                update_gate: updates::CheckGate::default(),
                 install_lock: tokio::sync::Mutex::new(()),
+                imports: Mutex::new(HashMap::new()),
                 catalog_update_available: AtomicBool::new(catalog_update_available),
             });
 
@@ -871,6 +1051,11 @@ pub fn run() {
             pet_catalog_refresh,
             catalog_status,
             pet_install,
+            pet_import_prepare,
+            pet_import_commit,
+            pet_import_cancel,
+            pet_import_pick,
+            pet_skill_export,
             installed_pets,
             pet_uninstall,
             pet_selection_set,
@@ -1620,6 +1805,7 @@ fn resolve_pet_payload(
             version: version.into(),
             sprite_version_number,
             spritesheet_path: None,
+            asset_revision: None,
         });
     }
     let (spritesheet, sprite_version_number) = if version == "local" {
@@ -1645,6 +1831,7 @@ fn resolve_pet_payload(
         id: id.into(),
         version: version.into(),
         sprite_version_number,
+        asset_revision: Some(pets::asset_revision(&spritesheet)),
         spritesheet_path: Some(spritesheet),
     })
 }
@@ -1758,62 +1945,7 @@ async fn wait_until_pet_idle(app: &tauri::AppHandle) {
 }
 
 async fn check_for_update(app: &tauri::AppHandle) -> Result<UpdateStatus, String> {
-    let endpoint = updater_endpoint().ok_or("app updater is not configured for this build")?;
-    let public_key =
-        option_env!("DESKMATE_UPDATER_PUBLIC_KEY").ok_or("updater public key is missing")?;
-    let updater = app
-        .updater_builder()
-        .pubkey(public_key)
-        .endpoints(vec![endpoint])
-        .map_err(|error| error.to_string())?
-        .build()
-        .map_err(|error| error.to_string())?;
-    let update = updater.check().await.map_err(|error| error.to_string())?;
-    let version = update.as_ref().map(|item| item.version.clone());
-    let notes = update.as_ref().and_then(|item| item.body.clone());
-    let mut status = UpdateStatus {
-        available: update.is_some(),
-        downloaded: false,
-        version,
-        notes,
-    };
-    if let Some(update) = update {
-        // The periodic check and a manual click can both land here; staging
-        // the same version twice would re-download the full installer.
-        let already_staged = app
-            .state::<AppState>()
-            .ready_update
-            .lock()
-            .ok()
-            .and_then(|ready| ready.as_ref().map(|item| item.update.version.clone()))
-            .is_some_and(|staged| staged == update.version);
-        if already_staged {
-            status.downloaded = true;
-        } else {
-            match update.download(|_, _| {}, || {}).await {
-                Ok(bytes) => {
-                    *app.state::<AppState>()
-                        .ready_update
-                        .lock()
-                        .map_err(|_| "updater lock poisoned")? =
-                        Some(ReadyUpdate { update, bytes });
-                    status.downloaded = true;
-                }
-                Err(error) => {
-                    // The check succeeded; report the download problem without
-                    // failing the whole check so the next retry can stage it.
-                    let _ = app.emit(
-                        "update://error",
-                        format!("新版本下载失败，稍后将自动重试：{error}"),
-                    );
-                }
-            }
-        }
-        if status.downloaded {
-            let _ = app.emit("update://ready", &status);
-        }
-    }
-    Ok(status)
+    updates::check(app).await
 }
 
 fn catalog_url() -> Option<url::Url> {

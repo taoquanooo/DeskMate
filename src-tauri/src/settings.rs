@@ -37,6 +37,8 @@ pub struct PetSettings {
     pub scale: f64,
     pub speed: f64,
     pub roaming_enabled: bool,
+    #[serde(default)]
+    pub roaming_timing: RoamingTiming,
     pub always_on_top: bool,
     pub hide_in_fullscreen: bool,
     pub click_through: bool,
@@ -51,6 +53,61 @@ pub enum ActivityAction {
     Running,
     Review,
     Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoamingTiming {
+    pub walk_min_seconds: u32,
+    pub walk_max_seconds: u32,
+    pub pause_min_seconds: u32,
+    pub pause_max_seconds: u32,
+}
+
+impl Default for RoamingTiming {
+    fn default() -> Self {
+        Self {
+            walk_min_seconds: 15,
+            walk_max_seconds: 45,
+            pause_min_seconds: 3,
+            pause_max_seconds: 10,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for RoamingTiming {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        let mut result = Self::default();
+        for (min_key, max_key, min_out, max_out) in [
+            (
+                "walkMinSeconds",
+                "walkMaxSeconds",
+                &mut result.walk_min_seconds,
+                &mut result.walk_max_seconds,
+            ),
+            (
+                "pauseMinSeconds",
+                "pauseMaxSeconds",
+                &mut result.pause_min_seconds,
+                &mut result.pause_max_seconds,
+            ),
+        ] {
+            let min = value
+                .get(min_key)
+                .map_or(Some(u64::from(*min_out)), Value::as_u64);
+            let max = value
+                .get(max_key)
+                .map_or(Some(u64::from(*max_out)), Value::as_u64);
+            if let (Some(min), Some(max)) = (min, max) {
+                if min >= 1 && max <= 3600 && min <= max {
+                    *min_out = min as u32;
+                    *max_out = max as u32;
+                }
+            }
+        }
+        Ok(result)
+    }
 }
 
 impl ActivityAction {
@@ -91,6 +148,7 @@ pub enum ActivityFrequency {
 #[serde(rename_all = "camelCase")]
 pub struct RandomActivitySettings {
     pub enabled: bool,
+    pub pause_roaming: bool,
     pub frequency: ActivityFrequency,
     pub custom_min_seconds: u32,
     pub custom_max_seconds: u32,
@@ -101,6 +159,7 @@ impl Default for RandomActivitySettings {
     fn default() -> Self {
         Self {
             enabled: false,
+            pause_roaming: true,
             frequency: ActivityFrequency::Normal,
             custom_min_seconds: 30,
             custom_max_seconds: 90,
@@ -133,6 +192,9 @@ impl<'de> Deserialize<'de> for RandomActivitySettings {
         let mut result = Self::default();
         if let Some(enabled) = value.get("enabled").and_then(Value::as_bool) {
             result.enabled = enabled;
+        }
+        if let Some(pause) = value.get("pauseRoaming").and_then(Value::as_bool) {
+            result.pause_roaming = pause;
         }
         if let Some(frequency) = value.get("frequency") {
             result.frequency =
@@ -419,6 +481,8 @@ mod tests {
         assert!(!old.random_activity.enabled);
         assert_eq!(old.pet.scale, 0.8);
         assert_eq!(old.selected_pet.id, "bear");
+        assert_eq!(old.pet.roaming_timing, super::RoamingTiming::default());
+        assert!(old.random_activity.pause_roaming);
         let next = store.patch(&old, json!({ "randomActivity": { "enabled": true, "enabledActions": ["unknown"], "frequency": "custom", "customMinSeconds": 5, "customMaxSeconds": 5 } })).unwrap();
         assert!(next.random_activity.enabled_actions.is_empty());
         assert_eq!(next.random_activity.interval_seconds(), (5, 5));
@@ -426,6 +490,20 @@ mod tests {
         assert_eq!(next.pet.scale, 0.8);
         assert_eq!(next.selected_pet, old.selected_pet);
         assert_eq!(next.reminders.len(), old.reminders.len());
+    }
+
+    #[test]
+    fn malformed_roaming_fields_recover_independently_without_resetting_old_settings() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = SettingsStore::new(directory.path().join("settings.json"));
+        let next = store.patch(&store.load(), json!({ "selectedPet": { "id": "bear", "version": "local" }, "pet": { "scale": 0.8, "roamingTiming": { "walkMinSeconds": 0, "pauseMinSeconds": 1, "pauseMaxSeconds": 3600 } }, "randomActivity": { "pauseRoaming": false } })).unwrap();
+        assert_eq!(next.pet.roaming_timing.walk_min_seconds, 15);
+        assert_eq!(next.pet.roaming_timing.pause_max_seconds, 3600);
+        assert!(!next.random_activity.pause_roaming);
+        assert_eq!(next.pet.scale, 0.8);
+        assert_eq!(next.selected_pet.id, "bear");
+        assert_eq!(next.schema_version, 1);
+        assert_eq!(store.load().pet.roaming_timing, next.pet.roaming_timing);
     }
 
     #[test]
