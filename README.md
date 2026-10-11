@@ -111,7 +111,7 @@ custom-pets/
 
 随安装包内置的宠物（默认伙伴、Lev-neon）存放在 `public/pets/`，修改它们需要发布新的应用版本。
 
-其余七只官方宠物（`agumon-baby-flame`、`blue-guga`、`caocao-bear`、`hwjin-black`、`hwjin-white`、`ikkun`、`lansha`）存放在 `online-pets/`，不进入安装包。用户在宠物库点击安装后才通过 HTTPS 下载。
+其余七只官方宠物（`agumon-baby-flame`、`blue-guga`、`caocao-bear`、`essence-black`、`essence-white`、`ikkun`、`lansha`）存放在 `online-pets/`，不进入安装包。用户在宠物库点击安装后才通过 HTTPS 下载。
 
 ```text
 online-pets/

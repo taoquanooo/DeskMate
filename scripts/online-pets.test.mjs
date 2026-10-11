@@ -11,8 +11,8 @@ const expectedIds = [
   "agumon-baby-flame",
   "blue-guga",
   "caocao-bear",
-  "hwjin-black",
-  "hwjin-white",
+  "essence-black",
+  "essence-white",
   "ikkun",
   "lansha",
 ];
