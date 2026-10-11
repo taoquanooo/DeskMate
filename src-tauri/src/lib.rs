@@ -146,8 +146,7 @@ struct ReadyUpdate {
 #[serde(rename_all = "camelCase")]
 struct UpdateStatus {
     available: bool,
-    /// Whether the installer was fully downloaded and staged. A failed
-    /// download must not be reported as a failed check.
+    /// Whether a signature-verified installer is ready to install.
     downloaded: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<String>,

@@ -496,6 +496,7 @@ mod tests {
     fn malformed_roaming_fields_recover_independently_without_resetting_old_settings() {
         let directory = tempfile::tempdir().unwrap();
         let store = SettingsStore::new(directory.path().join("settings.json"));
+        store.save_value(&json!({ "schemaVersion": 1, "selectedPet": { "id": "bear", "version": "local" }, "pet": { "scale": 0.8 } })).unwrap();
         let next = store.patch(&store.load(), json!({ "selectedPet": { "id": "bear", "version": "local" }, "pet": { "scale": 0.8, "roamingTiming": { "walkMinSeconds": 0, "pauseMinSeconds": 1, "pauseMaxSeconds": 3600 } }, "randomActivity": { "pauseRoaming": false } })).unwrap();
         assert_eq!(next.pet.roaming_timing.walk_min_seconds, 15);
         assert_eq!(next.pet.roaming_timing.pause_max_seconds, 3600);

@@ -9,6 +9,7 @@ src-tauri/target/
 .env.*
 !.env.example
 .playwright-cli/
+output/playwright/
 .tools/
 .superpowers/
 .xwin-cache/

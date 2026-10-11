@@ -1305,7 +1305,7 @@ body.view-bubble {
   }
 }
 
-@media (max-width: 800px) {
+@media (max-width: 940px) {
   .settings-shell {
     grid-template-columns: 184px 1fr;
   }

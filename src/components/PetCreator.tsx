@@ -71,7 +71,7 @@ export function PetCreator({ onOpenLibrary }: { onOpenLibrary: () => void }) {
       <section className="creator-card">
         <h2>复制制作提示词</h2>
         <label className="creator-prompt-label">
-          填写角色信息后发给 AI
+          复制后填写角色信息，再发给 AI
           <textarea readOnly value={PROMPT} rows={9} />
         </label>
         <button
