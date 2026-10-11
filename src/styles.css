@@ -98,18 +98,22 @@ textarea {
   font-size: 16px;
   margin: 0 0 12px;
 }
-.import-url-form {
-  display: flex;
-  align-items: end;
-  flex-wrap: wrap;
-  gap: 12px;
+.pet-import-methods {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
   margin: 18px 0;
 }
-.import-url-form label {
-  flex: 1 1 220px;
+.import-url-form {
+  display: grid;
+  gap: 12px;
+}
+.import-url-form .button {
+  justify-self: start;
 }
 .import-drop-zone {
   width: 100%;
+  min-height: 112px;
   padding: 24px 12px;
   border: 1px dashed #d8d4ce;
   border-radius: 10px;
@@ -185,17 +189,15 @@ button {
 }
 
 .settings-shell {
-  min-height: 720px;
+  height: 100vh;
   display: grid;
   grid-template-columns: 224px 1fr;
   background: #fff;
+  overflow: hidden;
 }
 .sidebar {
-  position: sticky;
-  top: 0;
-  align-self: start;
-  height: 100vh;
-  max-height: 100vh;
+  height: 100%;
+  min-height: 0;
   padding: 27px 20px 24px;
   background: var(--subtle);
   border-right: 1px solid var(--divider);
@@ -311,7 +313,17 @@ button {
 
 .settings-main {
   min-width: 0;
+  min-height: 0;
   padding: 42px 48px 44px;
+  overflow-y: auto;
+}
+.settings-main-home {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.settings-main-home .page-header {
+  flex-shrink: 0;
 }
 .page-header {
   padding-bottom: 28px;
@@ -329,13 +341,16 @@ button {
   font-size: 14px;
 }
 .pet-settings-grid {
+  flex: 1;
+  min-height: 0;
   display: grid;
+  grid-template-rows: minmax(0, 1fr);
   grid-template-columns: minmax(265px, 0.88fr) minmax(320px, 1.12fr);
   gap: 38px;
   padding-top: 28px;
 }
 .pet-preview {
-  min-height: 500px;
+  min-height: 0;
   border-radius: 18px;
   background: var(--subtle);
   padding: 25px 24px 22px;
@@ -343,6 +358,16 @@ button {
   flex-direction: column;
   align-items: center;
   overflow: hidden;
+}
+.pet-preview .sprite-stage {
+  flex: 1;
+  height: auto;
+  min-height: 208px;
+}
+.pet-preview .preview-bubble,
+.pet-preview .pet-identity,
+.pet-preview .button {
+  flex-shrink: 0;
 }
 .preview-bubble {
   position: relative;
@@ -401,6 +426,10 @@ button {
 
 .setting-list {
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding-right: 8px;
 }
 .setting-row {
   min-height: 70px;
@@ -1313,10 +1342,11 @@ body.view-bubble {
     padding: 34px 30px;
   }
   .pet-settings-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(224px, 0.88fr) minmax(260px, 1.12fr);
+    gap: 20px;
   }
   .pet-preview {
-    min-height: 450px;
+    padding: 20px 16px;
   }
 }
 

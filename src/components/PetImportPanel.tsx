@@ -111,15 +111,20 @@ export function PetImportPanel({
             ? `正在下载… ${Math.min(100, Math.round((progress.downloaded / progress.total) * 100))}%`
             : `正在下载… ${(progress.downloaded / 1024 / 1024).toFixed(1)} MiB`,
       );
-    }).then((dispose) => {
-      if (stopped) dispose();
-      else disposeProgress = dispose;
-    });
+    })
+      .then((dispose) => {
+        if (stopped) dispose();
+        else disposeProgress = dispose;
+      })
+      .catch((cause) => {
+        if (!stopped) setError(`无法显示安装进度：${String(cause)}`);
+      });
     return () => {
       mounted.current = false;
       stopped = true;
       disposeProgress?.();
-      if (pending.current) void petImportCancel(pending.current);
+      // Commit may have already consumed the token when this view closes.
+      if (pending.current) void petImportCancel(pending.current).catch(() => {});
     };
   }, []);
   useEffect(() => {
@@ -141,7 +146,9 @@ export function PetImportPanel({
         if (stopped) unlisten();
         else dispose = unlisten;
       })
-      .catch((cause) => setError(`无法启用拖放：${String(cause)}`));
+      .catch((cause) => {
+        if (!stopped) setError(`无法启用拖放：${String(cause)}`);
+      });
     return () => {
       stopped = true;
       dispose?.();
@@ -151,41 +158,43 @@ export function PetImportPanel({
     <section className={`pet-import-panel ${hover ? "drop-hover" : ""}`} aria-label="安装宠物">
       <h2>安装宠物</h2>
       <p>粘贴 ZIP 直链，或将一个 ZIP 拖入本页。文件仅安装到本机。</p>
-      <form
-        className="import-url-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (validUrl) void begin({ kind: "url", url: url.trim() });
-        }}
-      >
-        <label>
-          宠物 ZIP 链接
-          <input
-            type="url"
-            placeholder="https://…/my-pet.zip"
-            value={url}
-            disabled={busy || !!preview}
-            onChange={(event) => setUrl(event.target.value)}
-          />
-        </label>
-        <button className="button button-primary" disabled={!validUrl || busy || !!preview}>
-          下载安装
+      <div className="pet-import-methods">
+        <form
+          className="import-url-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (validUrl) void begin({ kind: "url", url: url.trim() });
+          }}
+        >
+          <label>
+            宠物 ZIP 链接
+            <input
+              type="url"
+              placeholder="https://…/my-pet.zip"
+              value={url}
+              disabled={busy || !!preview}
+              onChange={(event) => setUrl(event.target.value)}
+            />
+          </label>
+          <button className="button button-primary" disabled={!validUrl || busy || !!preview}>
+            下载安装
+          </button>
+        </form>
+        <button
+          type="button"
+          className="import-drop-zone"
+          disabled={busy || !!preview}
+          onClick={() => {
+            void petImportPick()
+              .then((path) => {
+                if (path) return begin({ kind: "file", path });
+              })
+              .catch((cause) => setError(String(cause)));
+          }}
+        >
+          {hover ? "松开即可安装" : "拖入 ZIP 或点击选择 ZIP"}
         </button>
-      </form>
-      <button
-        type="button"
-        className="import-drop-zone"
-        disabled={busy || !!preview}
-        onClick={() => {
-          void petImportPick()
-            .then((path) => {
-              if (path) return begin({ kind: "file", path });
-            })
-            .catch((cause) => setError(String(cause)));
-        }}
-      >
-        {hover ? "松开即可安装" : "拖入 ZIP 或点击选择 ZIP"}
-      </button>
+      </div>
       <small>
         支持 Codex v1 / v2，一次一只，最多 25 MiB。
         {folderPath && (

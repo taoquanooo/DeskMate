@@ -10,7 +10,7 @@ const cargoManifestUrl = new URL("../src-tauri/Cargo.toml", import.meta.url);
 const gitAttributesUrl = new URL("../.gitattributes", import.meta.url);
 const stylesUrl = new URL("../src/styles.css", import.meta.url);
 
-test("the cloud preview workflow verifies and uploads an unsigned NSIS installer", async () => {
+test("the cloud preview workflow uploads an installer and optional signed COS files without publishing a release", async () => {
   const workflow = await readFile(workflowUrl, "utf8");
 
   assert.match(workflow, /workflow_dispatch:/);
@@ -21,8 +21,14 @@ test("the cloud preview workflow verifies and uploads an unsigned NSIS installer
   assert.match(workflow, /cargo test --manifest-path src-tauri\/Cargo\.toml --target x86_64-pc-windows-msvc/);
   assert.match(
     workflow,
-    /pnpm tauri build --ci --config src-tauri\/tauri\.preview\.conf\.json --target x86_64-pc-windows-msvc --bundles nsis/,
+    /pnpm tauri build --ci --config \$previewConfig --target x86_64-pc-windows-msvc --bundles nsis/,
   );
+  assert.match(workflow, /\$previewConfig = "src-tauri\/tauri\.preview\.conf\.json"/);
+  assert.match(workflow, /if \(\$env:TAURI_SIGNING_PRIVATE_KEY\).*src-tauri\/tauri\.conf\.json/);
+  assert.match(workflow, /node scripts\/build-update-mirror\.mjs/);
+  assert.match(workflow, /if: steps\.preview\.outputs\.mirror == 'true'/);
+  assert.match(workflow, /name: DeskMate-Update-Mirror/);
+  assert.doesNotMatch(workflow, /tauri-apps\/tauri-action|gh release|releaseDraft|tagName/);
   assert.match(workflow, /uses: actions\/upload-artifact@v4/);
   assert.match(workflow, /name: DeskMate-Windows-x64/);
   assert.match(workflow, /src-tauri\/target\/x86_64-pc-windows-msvc\/release\/bundle\/nsis\/\*\.exe/);
@@ -39,6 +45,21 @@ test("the cloud preview flavor does not require updater signing secrets", async 
   const config = JSON.parse(await readFile(previewConfigUrl, "utf8"));
 
   assert.equal(config.bundle.createUpdaterArtifacts, false);
+});
+
+test("the frontend, Tauri, Cargo manifest and lockfile use the same app version", async () => {
+  const [pkg, config, cargo, lock] = await Promise.all(
+    [
+      "../package.json",
+      "../src-tauri/tauri.conf.json",
+      "../src-tauri/Cargo.toml",
+      "../src-tauri/Cargo.lock",
+    ].map((file) => readFile(new URL(file, import.meta.url), "utf8")),
+  );
+  const version = JSON.parse(pkg).version;
+  assert.equal(JSON.parse(config).version, version);
+  assert.equal(cargo.match(/^version = "([^"]+)"$/m)?.[1], version);
+  assert.equal(lock.match(/name = "deskmate"\r?\nversion = "([^"]+)"/)?.[1], version);
 });
 
 test("the updater plugin always has a deserializable startup config", async () => {

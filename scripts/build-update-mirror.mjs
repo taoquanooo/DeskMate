@@ -36,17 +36,15 @@ export async function buildMirror({
     throw new Error("安装包签名无效，请使用正式构建生成的 .sig 文件");
   }
   if (!Number.isFinite(Date.parse(pubDate))) throw new Error("发布日期无效");
-  const target = path.join(output, version);
-  if (path.resolve(input) === path.resolve(target)) throw new Error("输出目录不能覆盖输入安装包");
-  await mkdir(target, { recursive: true });
-  await copyFile(path.join(input, name), path.join(target, name));
-  await copyFile(path.join(input, `${name}.sig`), path.join(target, `${name}.sig`));
+  if (path.resolve(input) === path.resolve(output)) throw new Error("输出目录不能覆盖输入安装包");
+  await mkdir(output, { recursive: true });
+  await copyFile(path.join(input, name), path.join(output, name));
   const manifest = {
     version,
     notes,
     pub_date: pubDate,
     platforms: {
-      "windows-x86_64": { signature, url: new URL(`${version}/${encodeURIComponent(name)}`, url).href },
+      "windows-x86_64": { signature, url: new URL(encodeURIComponent(name), url).href },
     },
   };
   await writeFile(path.join(output, "latest.json"), `${JSON.stringify(manifest, null, 2)}\n`);

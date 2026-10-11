@@ -79,7 +79,7 @@ describe("PetPreview", () => {
     });
   });
 
-  it("keeps the last working image when the next pet image fails", async () => {
+  it("never shows the previous pet under a new name while the next atlas loads or fails", async () => {
     class PreviewImage {
       onload: (() => void) | null = null;
       onerror: (() => void) | null = null;
@@ -105,9 +105,10 @@ describe("PetPreview", () => {
         displayName="损坏宠物"
       />,
     );
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("正在载入预览");
     await act(async () => Promise.resolve());
-    expect(screen.getByRole("img")).toHaveStyle({
-      backgroundImage: "url(D:\\pets\\studio-cat\\spritesheet.webp)",
-    });
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("预览图暂时无法载入");
   });
 });

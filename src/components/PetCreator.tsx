@@ -17,7 +17,7 @@ export function PetCreator({ onOpenLibrary }: { onOpenLibrary: () => void }) {
   return (
     <div className="pet-creator">
       <header className="page-header">
-        <h1>开发宠物</h1>
+        <h1>做宠物</h1>
         <p>用自己的 AI 工具制作动画伙伴，再一键安装到 DeskMate。</p>
       </header>
       <section className="creator-card">

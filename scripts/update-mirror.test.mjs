@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { buildMirror, mirrorBase } from "./build-update-mirror.mjs";
 
-test("mirror generation preserves the signed installer and signature at a versioned HTTPS URL", async () => {
+test("mirror generation exports only latest.json and the original versioned installer for manual upload", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "deskmate-mirror-"));
   try {
     const input = path.join(root, "input"),
@@ -21,10 +21,15 @@ test("mirror generation preserves the signed installer and signature at a versio
       base: "https://example.com/deskmate",
       version: "0.3.0",
     });
-    assert.equal(manifest.platforms["windows-x86_64"].url, `https://example.com/deskmate/0.3.0/${name}`);
+    assert.equal(manifest.platforms["windows-x86_64"].url, `https://example.com/deskmate/${name}`);
     assert.equal(manifest.platforms["windows-x86_64"].signature, signature);
-    assert.equal(await readFile(path.join(output, "0.3.0", name), "utf8"), "installer fixture");
+    assert.equal(await readFile(path.join(output, name), "utf8"), "installer fixture");
+    assert.deepEqual((await readdir(output)).sort(), [name, "latest.json"]);
     assert.deepEqual(JSON.parse(await readFile(path.join(output, "latest.json"))), manifest);
+    await assert.rejects(
+      buildMirror({ input, output: input, base: "https://example.com", version: "0.3.0" }),
+      /不能覆盖输入安装包/,
+    );
     await assert.rejects(
       buildMirror({ input, output, base: "https://example.com", version: "0.4.0" }),
       /版本号不一致/,

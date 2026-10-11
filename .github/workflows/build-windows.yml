@@ -43,9 +43,24 @@ jobs:
           python -X utf8 scripts/pet-skill.test.py
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - run: cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
-      - name: Build unsigned NSIS preview
-        run: pnpm tauri build --ci --config src-tauri/tauri.preview.conf.json --target x86_64-pc-windows-msvc --bundles nsis
+      - name: Build NSIS preview and COS upload files
+        id: preview
+        shell: pwsh
+        run: |
+          $previewConfig = "src-tauri/tauri.preview.conf.json"
+          if ($env:TAURI_SIGNING_PRIVATE_KEY) { $previewConfig = "src-tauri/tauri.conf.json" }
+          pnpm tauri build --ci --config $previewConfig --target x86_64-pc-windows-msvc --bundles nsis
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($env:TAURI_SIGNING_PRIVATE_KEY -and $env:DESKMATE_UPDATE_MIRROR_BASE_URL) {
+            $previewVersion = (Get-Content package.json | ConvertFrom-Json).version
+            node scripts/build-update-mirror.mjs src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis output/update-mirror "$env:DESKMATE_UPDATE_MIRROR_BASE_URL" "$previewVersion"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            "mirror=true" >> $env:GITHUB_OUTPUT
+          }
         env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          DESKMATE_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_SIGNING_PUBLIC_KEY }}
           # Same catalog URL as the release build so the preview installer can
           # refresh the online pet catalog (with the api.github.com fallback).
           DESKMATE_CATALOG_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/catalog/v1/catalog.json
@@ -56,5 +71,13 @@ jobs:
         with:
           name: DeskMate-Windows-x64
           path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload COS update files
+        if: steps.preview.outputs.mirror == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeskMate-Update-Mirror
+          path: output/update-mirror/
           if-no-files-found: error
           retention-days: 14

@@ -32,7 +32,7 @@ export function PetPreview({
   const ready = loadedPet === petKey;
 
   useEffect(() => {
-    if (action === "idle" || (action && !ready)) return;
+    if (action === "idle" || !ready) return;
     setElapsedMs(0);
     const start = performance.now();
     const duration = action ? activityDurationMs(action) : Infinity;
@@ -90,7 +90,7 @@ export function PetPreview({
   return (
     <>
       <div className="sprite-stage">
-        {action && !ready ? (
+        {!ready ? (
           <p role="status">{loadError ? "预览图暂时无法载入" : "正在载入预览…"}</p>
         ) : (
           <PetSprite

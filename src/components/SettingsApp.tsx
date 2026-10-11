@@ -87,7 +87,7 @@ const NAV: Array<{ id: Section; label: string; icon: typeof PawPrint }> = [
   { id: "pet", label: "桌宠", icon: PawPrint },
   { id: "reminders", label: "活动", icon: Bell },
   { id: "library", label: "宠物库", icon: Box },
-  { id: "creator", label: "开发宠物", icon: PawPrint },
+  { id: "creator", label: "做宠物", icon: PawPrint },
   { id: "about", label: "关于", icon: CircleHelp },
 ];
 
@@ -210,7 +210,7 @@ export function SettingsApp({
           </button>
         </div>
       </aside>
-      <section className="settings-main">
+      <section className={section === "pet" ? "settings-main settings-main-home" : "settings-main"}>
         {settingsSaveError && (
           <p className="settings-save-error" role="alert">
             {settingsSaveError}
@@ -229,13 +229,36 @@ export function SettingsApp({
             currentPet={currentPet}
             localPets={localPets}
             catalog={catalog}
-            roamDraft={roamDraft}
-            onRoamDraftChange={setRoamDraft}
           />
         )}
         {section === "reminders" && (
           <>
             <PageHeader title="活动" subtitle="用随机动作增添活力，也可以设置定时提醒。" />
+            <header className="activity-section-header">
+              <h2>随机漫游</h2>
+              <p>自由行走、随机停留，也可以停下来做活动。</p>
+            </header>
+            <ToggleSetting
+              label="自动漫游"
+              description="在各个屏幕的可用区域里自由走动"
+              checked={settings.pet.roamingEnabled}
+              onChange={(roamingEnabled) => patchPet({ roamingEnabled })}
+            />
+            <RangeSetting
+              label="移动速度"
+              value={settings.pet.speed}
+              min={40}
+              max={140}
+              step={5}
+              suffix={`${settings.pet.speed} px/s`}
+              onChange={(speed) => patchPet({ speed })}
+            />
+            <RoamingTimingSettings
+              value={settings.pet.roamingTiming}
+              draft={roamDraft}
+              onDraftChange={setRoamDraft}
+              onSave={(roamingTiming) => patchPet({ roamingTiming })}
+            />
             <RandomActivitySettingsPanel
               value={settings.randomActivity}
               statusLabel={activityStatusLabel}
@@ -330,8 +353,6 @@ function PetSettings({
   currentPet,
   localPets,
   catalog,
-  roamDraft,
-  onRoamDraftChange,
 }: {
   settings: SettingsV1;
   activityStatusLabel: string;
@@ -341,8 +362,6 @@ function PetSettings({
   currentPet?: PetChangedPayload | null;
   localPets: LocalPetV1[];
   catalog?: PetCatalogV1 | null;
-  roamDraft: ReturnType<typeof roamingDraft>;
-  onRoamDraftChange: (value: ReturnType<typeof roamingDraft>) => void;
 }) {
   const previewPet: PetChangedPayload = currentPet ?? {
     id: settings.selectedPet.id,
@@ -375,27 +394,6 @@ function PetSettings({
         </section>
         <section className="setting-list" aria-label="桌宠行为设置">
           <PetSizeSetting scale={settings.pet.scale} onChange={(scale) => patchPet({ scale })} />
-          <RangeSetting
-            label="移动速度"
-            value={settings.pet.speed}
-            min={40}
-            max={140}
-            step={5}
-            suffix={`${settings.pet.speed} px/s`}
-            onChange={(value) => patchPet({ speed: value })}
-          />
-          <ToggleSetting
-            label="自动漫游"
-            description="在各个屏幕的可用区域里自由走动"
-            checked={settings.pet.roamingEnabled}
-            onChange={(value) => patchPet({ roamingEnabled: value })}
-          />
-          <RoamingTimingSettings
-            value={settings.pet.roamingTiming}
-            draft={roamDraft}
-            onDraftChange={onRoamDraftChange}
-            onSave={(roamingTiming) => patchPet({ roamingTiming })}
-          />
           <ToggleSetting
             label="随机活动"
             description={

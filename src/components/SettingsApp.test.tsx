@@ -10,15 +10,19 @@ describe("SettingsApp", () => {
   it("retains unsaved roaming ranges across pages and unrelated settings responses", () => {
     const change = vi.fn();
     const view = render(<SettingsApp initialSettings={DEFAULT_SETTINGS} onSettingsChange={change} />);
+    expect(screen.queryByRole("switch", { name: "自动漫游" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("随机行走最短秒数")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "活动" }));
     fireEvent.change(screen.getByLabelText("随机行走最短秒数"), { target: { value: "60" } });
     expect(screen.getByRole("button", { name: "保存漫游时长" })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("随机行走最长秒数"), { target: { value: "80" } });
-    fireEvent.click(screen.getByRole("button", { name: "开发宠物" }));
-    expect(screen.getByRole("heading", { name: "开发宠物" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "做宠物" }));
+    expect(screen.getByRole("heading", { name: "做宠物" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "桌宠" }));
     view.rerender(
       <SettingsApp initialSettings={structuredClone(DEFAULT_SETTINGS)} onSettingsChange={change} />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "活动" }));
     expect(screen.getByLabelText("随机行走最短秒数")).toHaveValue(60);
     expect(screen.getByText("未保存")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "保存漫游时长" }));
@@ -92,6 +96,7 @@ describe("SettingsApp", () => {
   it("persists a changed roaming preference", () => {
     const onSettingsChange = vi.fn();
     render(<SettingsApp initialSettings={DEFAULT_SETTINGS} onSettingsChange={onSettingsChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "活动" }));
     fireEvent.click(screen.getByRole("switch", { name: "自动漫游" }));
     expect(onSettingsChange).toHaveBeenCalledWith(
       expect.objectContaining({ pet: expect.objectContaining({ roamingEnabled: false }) }),

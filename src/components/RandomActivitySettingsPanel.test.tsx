@@ -35,14 +35,13 @@ describe("random activity controls", () => {
     expect(change.mock.lastCall?.[0].randomActivity.customMinSeconds).toBe(20);
     expect(screen.queryByText(/未保存：/)).not.toBeInTheDocument();
   });
-  it("places the independent switch below roaming and shares it with Activities", () => {
+  it("keeps the independent activity switch on home and shares it with Activities", () => {
     const change = vi.fn();
     render(<SettingsApp initialSettings={DEFAULT_SETTINGS} onSettingsChange={change} />);
     const toggles = within(screen.getByLabelText("桌宠行为设置")).getAllByRole("switch");
-    expect(toggles[0]).toHaveAccessibleName("自动漫游");
-    expect(toggles[1]).toHaveAccessibleName("随机活动");
-    expect(toggles[1]).toHaveAttribute("aria-checked", "false");
-    fireEvent.click(toggles[1]!);
+    expect(toggles[0]).toHaveAccessibleName("随机活动");
+    expect(toggles[0]).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(toggles[0]!);
     expect(change.mock.lastCall?.[0]).toMatchObject({
       randomActivity: { enabled: true },
       pet: { roamingEnabled: true },

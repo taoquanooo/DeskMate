@@ -290,7 +290,7 @@ describe("DeskMate settings startup", () => {
 
     render(<App />);
     await screen.findByRole("heading", { name: "桌宠设置" });
-    fireEvent.click(screen.getByRole("switch", { name: "自动漫游" }));
+    fireEvent.click(screen.getByRole("switch", { name: "始终置顶" }));
 
     expect(await screen.findByText(/保存设置失败/)).toBeInTheDocument();
     expect(screen.getByText(/disk full/)).toBeInTheDocument();
