@@ -12,6 +12,7 @@ src-tauri/target/
 output/playwright/
 .tools/
 .superpowers/
+/docs/superpowers/
 .xwin-cache/
 .pnpm-store/
 rustup-init.exe
